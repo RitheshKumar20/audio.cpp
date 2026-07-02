@@ -1,6 +1,7 @@
 #include "engine/models/vibevoice/decoder.h"
 
 #include "engine/framework/core/backend_weight_store.h"
+#include "engine/framework/debug/profiler.h"
 #include "engine/framework/debug/trace.h"
 #include "engine/framework/modules/activation_modules.h"
 #include "engine/framework/modules/norm_modules.h"
@@ -333,6 +334,7 @@ VibeVoiceDecoderWeights load_vibevoice_decoder_weights(
         backend_type,
         "vibevoice.decoder.weights",
         weight_context_bytes);
+    const auto queue_started = std::chrono::steady_clock::now();
     weights.token_embedding = weights.store->load_tensor(
         *assets.model_weights,
         "model.language_model.embed_tokens.weight",
@@ -357,7 +359,14 @@ VibeVoiceDecoderWeights load_vibevoice_decoder_weights(
             weight_storage_type));
     }
     weights.norm = assets.model_weights->require_f32_tensor("model.language_model.norm.weight", {config.hidden_size});
+    engine::debug::timing_log_scalar(
+        "vibevoice.runtime.decoder_weight_queue_ms",
+        engine::debug::elapsed_ms(queue_started));
+    const auto upload_started = std::chrono::steady_clock::now();
     weights.store->upload();
+    engine::debug::timing_log_scalar(
+        "vibevoice.runtime.decoder_weight_upload_ms",
+        engine::debug::elapsed_ms(upload_started));
     return weights;
 }
 
@@ -1474,7 +1483,12 @@ VibeVoiceDecoderWeightsRuntime::VibeVoiceDecoderWeightsRuntime(
     if (threads_ <= 0) {
         throw std::runtime_error("VibeVoice decoder weights runtime requires positive thread count");
     }
+    const auto backend_started = std::chrono::steady_clock::now();
     backend_ = core::init_backend({backend_type, device, threads_});
+    engine::debug::timing_log_scalar(
+        "vibevoice.runtime.decoder_backend_init_ms",
+        engine::debug::elapsed_ms(backend_started));
+    const auto weights_started = std::chrono::steady_clock::now();
     weights_ = std::make_shared<VibeVoiceDecoderWeights>(
         load_vibevoice_decoder_weights(
             *assets_,
@@ -1482,6 +1496,9 @@ VibeVoiceDecoderWeightsRuntime::VibeVoiceDecoderWeightsRuntime(
             backend_type,
             weight_context_bytes,
             weight_storage_type));
+    engine::debug::timing_log_scalar(
+        "vibevoice.runtime.decoder_weights_load_ms",
+        engine::debug::elapsed_ms(weights_started));
     constants_ = std::make_unique<common::ConstantTensorCache>(
         backend_,
         threads_,

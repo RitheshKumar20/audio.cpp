@@ -1,13 +1,16 @@
 #include "engine/models/vibevoice/lora.h"
 
 #include "engine/framework/assets/torch_bin.h"
+#include "engine/framework/debug/profiler.h"
 #include "engine/framework/debug/trace.h"
 #include "engine/framework/io/filesystem.h"
 #include "engine/framework/io/json.h"
 #include "engine/framework/runtime/options.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <cstdint>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -29,6 +32,7 @@ constexpr std::string_view kLoraBSuffix = ".lora_B.weight";
 constexpr std::string_view kPredictionHeadPrefix = "model.prediction_head.";
 constexpr std::string_view kAcousticConnectorPrefix = "model.acoustic_connector.";
 constexpr std::string_view kSemanticConnectorPrefix = "model.semantic_connector.";
+constexpr int64_t kParallelLoraMergeWorkItems = 1ll << 20;
 
 void log_line(const std::string & message, engine::debug::LogLevel level = engine::debug::LogLevel::Info) {
     engine::debug::log_message(level, "vibevoice", message);
@@ -51,6 +55,12 @@ struct LoraTensorDelta {
 struct OverrideTensor {
     std::vector<int64_t> shape;
     std::vector<float> values;
+};
+
+struct LoraMergeResult {
+    std::vector<float> values;
+    double base_read_ms = 0.0;
+    double compute_ms = 0.0;
 };
 
 struct LoraTensorNames {
@@ -131,12 +141,17 @@ std::string resolve_base_weight_name(const assets::TensorSource & base, const st
     throw std::runtime_error("VibeVoice LoRA targets a module with no matching base weight: " + module_path);
 }
 
-std::vector<float> merged_f32_values(
+LoraMergeResult merged_f32_values(
     const assets::TensorSource & base,
     const std::string & name,
     const LoraTensorDelta & delta) {
+    const auto base_read_started = std::chrono::steady_clock::now();
     auto values = base.require_f32(name, std::optional<std::vector<int64_t>>({delta.out, delta.in}));
+    const double base_read_ms = engine::debug::elapsed_ms(base_read_started);
+    const int64_t merge_work_items = delta.out * delta.in * delta.r;
     // values[o, i] += scale * sum_k B[o, k] * A[k, i]
+    const auto compute_started = std::chrono::steady_clock::now();
+    #pragma omp parallel for if(merge_work_items >= kParallelLoraMergeWorkItems) schedule(static)
     for (int64_t o = 0; o < delta.out; ++o) {
         const int64_t row = o * delta.in;
         for (int64_t k = 0; k < delta.r; ++k) {
@@ -150,7 +165,7 @@ std::vector<float> merged_f32_values(
             }
         }
     }
-    return values;
+    return LoraMergeResult{std::move(values), base_read_ms, engine::debug::elapsed_ms(compute_started)};
 }
 
 // A weight source that overlays a fine-tune adapter onto a base source: full overrides replace a
@@ -188,14 +203,50 @@ public:
     assets::RawTensorData require_tensor_data(std::string_view name) const override {
         const std::string key(name);
         if (const auto override_it = overrides_.find(key); override_it != overrides_.end()) {
-            return raw_from_f32(key, override_it->second.shape, override_it->second.values);
+            const auto started = std::chrono::steady_clock::now();
+            auto raw = raw_from_f32(key, override_it->second.shape, override_it->second.values);
+            record_override_export(engine::debug::elapsed_ms(started), override_it->second.values.size());
+            return raw;
         }
         const auto delta = deltas_.find(key);
         if (delta == deltas_.end()) {
             return base_->require_tensor_data(name);
         }
-        const auto values = merged_f32_values(*base_, key, delta->second);
-        return raw_from_f32(key, {delta->second.out, delta->second.in}, values);
+        auto merged = merged_f32_values(*base_, key, delta->second);
+        record_decoder_merge(merged.base_read_ms, merged.compute_ms, merged.values.size());
+        return raw_from_f32(key, {delta->second.out, delta->second.in}, merged.values);
+    }
+
+    void set_backend_tensor(
+        ggml_tensor * tensor,
+        std::string_view name,
+        assets::TensorStorageType storage_type,
+        const std::vector<int64_t> & expected_shape) const override {
+        const std::string key(name);
+        const auto shape = shape_from_expected(key, expected_shape);
+        const ggml_type type = assets::ggml_type_for_tensor_storage(storage_type);
+        if (const auto override_it = overrides_.find(key); override_it != overrides_.end()) {
+            if (override_it->second.shape != expected_shape) {
+                throw std::runtime_error("tensor shape mismatch for " + key);
+            }
+            const auto started = std::chrono::steady_clock::now();
+            assets::set_backend_tensor_from_f32_parallel(tensor, key, override_it->second.values, shape, type);
+            record_override_upload(engine::debug::elapsed_ms(started), override_it->second.values.size());
+            return;
+        }
+        const auto delta = deltas_.find(key);
+        if (delta == deltas_.end()) {
+            base_->set_backend_tensor(tensor, name, storage_type, expected_shape);
+            return;
+        }
+        if (expected_shape != std::vector<int64_t>({delta->second.out, delta->second.in})) {
+            throw std::runtime_error("tensor shape mismatch for " + key);
+        }
+        auto merged = merged_f32_values(*base_, key, delta->second);
+        record_decoder_merge(merged.base_read_ms, merged.compute_ms, merged.values.size());
+        const auto upload_started = std::chrono::steady_clock::now();
+        assets::set_backend_tensor_from_f32_parallel(tensor, key, merged.values, shape, type);
+        record_decoder_upload(engine::debug::elapsed_ms(upload_started), merged.values.size());
     }
 
     std::vector<float> require_f32(
@@ -203,13 +254,18 @@ public:
         const std::optional<std::vector<int64_t>> & expected_shape) const override {
         const std::string key(name);
         if (const auto override_it = overrides_.find(key); override_it != overrides_.end()) {
-            return override_it->second.values;
+            const auto started = std::chrono::steady_clock::now();
+            auto values = override_it->second.values;
+            record_override_export(engine::debug::elapsed_ms(started), values.size());
+            return values;
         }
         const auto delta = deltas_.find(key);
         if (delta == deltas_.end()) {
             return base_->require_f32(name, expected_shape);
         }
-        return merged_f32_values(*base_, key, delta->second);
+        auto merged = merged_f32_values(*base_, key, delta->second);
+        record_decoder_merge(merged.base_read_ms, merged.compute_ms, merged.values.size());
+        return std::move(merged.values);
     }
 
     std::optional<std::vector<float>> optional_f32(
@@ -237,9 +293,98 @@ private:
         return raw;
     }
 
+    static engine::core::TensorShape shape_from_expected(
+        const std::string & name,
+        const std::vector<int64_t> & expected_shape) {
+        switch (expected_shape.size()) {
+            case 1:
+                return engine::core::TensorShape::from_dims({expected_shape[0]});
+            case 2:
+                return engine::core::TensorShape::from_dims({expected_shape[0], expected_shape[1]});
+            case 3:
+                return engine::core::TensorShape::from_dims({expected_shape[0], expected_shape[1], expected_shape[2]});
+            case 4:
+                return engine::core::TensorShape::from_dims(
+                    {expected_shape[0], expected_shape[1], expected_shape[2], expected_shape[3]});
+            default:
+                throw std::runtime_error("tensor rank must be between 1 and 4: " + name);
+        }
+    }
+
+    void record_decoder_merge(double base_read_ms, double compute_ms, size_t values) const {
+        decoder_base_read_ms_ += base_read_ms;
+        decoder_merge_compute_ms_ += compute_ms;
+        decoder_merge_values_ += static_cast<uint64_t>(values);
+        ++decoder_merge_tensors_;
+        if (!decoder_merge_logged_ && decoder_merge_tensors_ == deltas_.size()) {
+            engine::debug::timing_log_scalar("vibevoice.lora.decoder_base_read_ms", decoder_base_read_ms_);
+            engine::debug::timing_log_scalar("vibevoice.lora.decoder_merge_compute_ms", decoder_merge_compute_ms_);
+            engine::debug::timing_log_scalar(
+                "vibevoice.lora.decoder_merge_ms",
+                decoder_base_read_ms_ + decoder_merge_compute_ms_);
+            engine::debug::timing_log_scalar("vibevoice.lora.decoder_merge_tensors", decoder_merge_tensors_);
+            engine::debug::timing_log_scalar("vibevoice.lora.decoder_merge_values", decoder_merge_values_);
+            decoder_merge_logged_ = true;
+        }
+    }
+
+    void record_decoder_upload(double ms, size_t values) const {
+        decoder_upload_ms_ += ms;
+        decoder_upload_values_ += static_cast<uint64_t>(values);
+        ++decoder_upload_tensors_;
+        if (!decoder_upload_logged_ && decoder_upload_tensors_ == deltas_.size()) {
+            engine::debug::timing_log_scalar("vibevoice.lora.decoder_upload_ms", decoder_upload_ms_);
+            engine::debug::timing_log_scalar("vibevoice.lora.decoder_upload_tensors", decoder_upload_tensors_);
+            engine::debug::timing_log_scalar("vibevoice.lora.decoder_upload_values", decoder_upload_values_);
+            decoder_upload_logged_ = true;
+        }
+    }
+
+    void record_override_export(double ms, size_t values) const {
+        override_export_ms_ += ms;
+        override_export_values_ += static_cast<uint64_t>(values);
+        ++override_export_tensors_;
+        maybe_log_override_summary();
+    }
+
+    void record_override_upload(double ms, size_t values) const {
+        override_upload_ms_ += ms;
+        override_upload_values_ += static_cast<uint64_t>(values);
+        ++override_upload_tensors_;
+        maybe_log_override_summary();
+    }
+
+    void maybe_log_override_summary() const {
+        if (!override_summary_logged_ && override_upload_tensors_ + override_export_tensors_ == overrides_.size()) {
+            engine::debug::timing_log_scalar("vibevoice.lora.override_export_ms", override_export_ms_);
+            engine::debug::timing_log_scalar("vibevoice.lora.override_export_tensors", override_export_tensors_);
+            engine::debug::timing_log_scalar("vibevoice.lora.override_export_values", override_export_values_);
+            engine::debug::timing_log_scalar("vibevoice.lora.override_upload_ms", override_upload_ms_);
+            engine::debug::timing_log_scalar("vibevoice.lora.override_upload_tensors", override_upload_tensors_);
+            engine::debug::timing_log_scalar("vibevoice.lora.override_upload_values", override_upload_values_);
+            override_summary_logged_ = true;
+        }
+    }
+
     std::shared_ptr<const assets::TensorSource> base_;
     std::unordered_map<std::string, LoraTensorDelta> deltas_;
     std::unordered_map<std::string, OverrideTensor> overrides_;
+    mutable double decoder_base_read_ms_ = 0.0;
+    mutable double decoder_merge_compute_ms_ = 0.0;
+    mutable uint64_t decoder_merge_values_ = 0;
+    mutable size_t decoder_merge_tensors_ = 0;
+    mutable bool decoder_merge_logged_ = false;
+    mutable double decoder_upload_ms_ = 0.0;
+    mutable uint64_t decoder_upload_values_ = 0;
+    mutable size_t decoder_upload_tensors_ = 0;
+    mutable bool decoder_upload_logged_ = false;
+    mutable double override_export_ms_ = 0.0;
+    mutable uint64_t override_export_values_ = 0;
+    mutable size_t override_export_tensors_ = 0;
+    mutable double override_upload_ms_ = 0.0;
+    mutable uint64_t override_upload_values_ = 0;
+    mutable size_t override_upload_tensors_ = 0;
+    mutable bool override_summary_logged_ = false;
 };
 
 std::unordered_map<std::string, LoraTensorNames> collect_lora_tensor_names(const assets::TensorSource & adapter) {
@@ -358,9 +503,12 @@ std::shared_ptr<const assets::TensorSource> make_vibevoice_finetune_source(
     if (base == nullptr) {
         throw std::runtime_error("VibeVoice LoRA merge requires a base tensor source");
     }
+    const auto prepare_started = std::chrono::steady_clock::now();
     const auto paths = resolve_adapter_paths(adapter_path);
     const float scale = resolve_adapter_scale(paths.config, scale_override);
+    const auto adapter_open_started = std::chrono::steady_clock::now();
     const auto adapter = assets::open_tensor_source(paths.weights);
+    engine::debug::timing_log_scalar("vibevoice.lora.adapter_open_ms", engine::debug::elapsed_ms(adapter_open_started));
 
     const auto tensor_names = collect_lora_tensor_names(*adapter);
     if (tensor_names.empty()) {
@@ -369,10 +517,12 @@ std::shared_ptr<const assets::TensorSource> make_vibevoice_finetune_source(
 
     std::unordered_map<std::string, LoraTensorDelta> deltas;
     deltas.reserve(tensor_names.size());
+    const auto delta_load_started = std::chrono::steady_clock::now();
     for (const auto & [module_path, names] : tensor_names) {
         const std::string base_name = resolve_base_weight_name(*base, module_path);
         deltas.emplace(base_name, load_lora_delta(*base, *adapter, module_path, names, base_name, scale));
     }
+    engine::debug::timing_log_scalar("vibevoice.lora.delta_load_ms", engine::debug::elapsed_ms(delta_load_started));
 
     log_line("applying fine-tune adapter: " + adapter_path.string());
     log_line("LM LoRA: merged " + std::to_string(deltas.size()) + " decoder modules (scale " +
@@ -381,15 +531,30 @@ std::shared_ptr<const assets::TensorSource> make_vibevoice_finetune_source(
     const auto adapter_dir = resolve_adapter_dir(adapter_path);
     std::unordered_map<std::string, OverrideTensor> overrides;
     if (const auto head = open_diffusion_head_source(adapter_dir)) {
+        const auto override_started = std::chrono::steady_clock::now();
         const int count = add_full_overrides(*base, *head, kPredictionHeadPrefix, overrides);
+        engine::debug::timing_log_scalar(
+            "vibevoice.lora.diffusion_head_override_load_ms",
+            engine::debug::elapsed_ms(override_started));
         log_line("diffusion head: overrode " + std::to_string(count) + " tensors");
     } else {
         log_line("diffusion head: not present, skipped");
     }
+    const auto acoustic_started = std::chrono::steady_clock::now();
     add_connector_overrides(*base, adapter_dir, "acoustic_connector", kAcousticConnectorPrefix,
         "acoustic connector", overrides);
+    engine::debug::timing_log_scalar(
+        "vibevoice.lora.acoustic_connector_override_load_ms",
+        engine::debug::elapsed_ms(acoustic_started));
+    const auto semantic_started = std::chrono::steady_clock::now();
     add_connector_overrides(*base, adapter_dir, "semantic_connector", kSemanticConnectorPrefix,
         "semantic connector", overrides);
+    engine::debug::timing_log_scalar(
+        "vibevoice.lora.semantic_connector_override_load_ms",
+        engine::debug::elapsed_ms(semantic_started));
+    engine::debug::timing_log_scalar("vibevoice.lora.prepare_ms", engine::debug::elapsed_ms(prepare_started));
+    engine::debug::timing_log_scalar("vibevoice.lora.decoder_delta_tensors", deltas.size());
+    engine::debug::timing_log_scalar("vibevoice.lora.full_override_tensors", overrides.size());
 
     return std::make_shared<VibeVoiceFineTuneSource>(std::move(base), std::move(deltas), std::move(overrides));
 }
