@@ -187,3 +187,4 @@ audiocpp_cli --task gen --family ace_step --model models/Ace-Step1.5 --backend c
 | `--load-option ace_step.lm_model_path=<dir>` | model subdir | `acestep-5Hz-lm-1.7B` | Select planner LM. |
 | `--session-option ace_step.dit_weight_type=<type>` | `native`, `f32`, `f16`, `bf16`, `q8_0` | `native` | DiT weight type. |
 | `--session-option ace_step.planner_weight_type=<type>` | `native`, `f32`, `f16`, `bf16`, `q8_0` | `native` | Planner LM weight type. |
+| `--session-option ace_step.mem_saver=true|false` | bool | `false` | Release staged graph/cache state after request phases to reduce resident VRAM. Later requests may rebuild released graphs. |

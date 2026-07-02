@@ -31,6 +31,7 @@ public:
         const AceStepTaskRoute & route,
         const AceStepPlan & plan) const;
     void prepare_runtime() const;
+    void release_runtime_graphs() const;
 
 private:
     void ensure_text_encoder() const;

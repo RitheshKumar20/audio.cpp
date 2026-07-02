@@ -400,6 +400,11 @@ public:
         return out;
     }
 
+    void release_runtime_graphs() const {
+        graph_.reset();
+        expanded_.clear();
+    }
+
 private:
     ggml_backend_t backend_ = nullptr;
     int threads_ = 1;
@@ -425,6 +430,10 @@ AceStepAudioDetokenizerRuntime::~AceStepAudioDetokenizerRuntime() = default;
 
 AceStepLatents AceStepAudioDetokenizerRuntime::decode_audio_codes(const std::vector<int32_t> & audio_code_ids) const {
     return impl_->decode_audio_codes(audio_code_ids);
+}
+
+void AceStepAudioDetokenizerRuntime::release_runtime_graphs() const {
+    impl_->release_runtime_graphs();
 }
 
 }  // namespace engine::models::ace_step

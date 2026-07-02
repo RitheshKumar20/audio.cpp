@@ -368,6 +368,24 @@ void AceStepPreDitRuntime::prepare_runtime() const {
     ensure_detokenizer();
 }
 
+void AceStepPreDitRuntime::release_runtime_graphs() const {
+    if (text_encoder_) {
+        text_encoder_->release_runtime_graphs();
+    }
+    if (condition_encoder_) {
+        condition_encoder_->release_runtime_graphs();
+    }
+    if (cover_tokenizer_) {
+        cover_tokenizer_->release_runtime_graphs();
+    }
+    if (detokenizer_) {
+        detokenizer_->release_runtime_graphs();
+    }
+    if (vae_encoder_) {
+        vae_encoder_->release_runtime_graphs();
+    }
+}
+
 AceStepPreDitInputs AceStepPreDitRuntime::prepare(
     const AceStepRequest & request,
     const AceStepTaskRoute & route,

@@ -130,6 +130,7 @@ public:
             {"heartmula.codec_flow_estimator_graph_arena_mb", "n", "Codec flow-estimator graph arena size."},
             {"heartmula.codec_conditioning_graph_arena_mb", "n", "Codec conditioning graph arena size."},
             {"heartmula.codec_scalar_decoder_graph_arena_mb", "n", "Codec scalar-decoder graph arena size."},
+            {"heartmula.mem_saver", "true|false", "Release staged runtime graphs after each request; default false."},
         };
         inspection.discovered_configs = discover_config_assets(request);
         inspection.discovered_weights = discover_weight_assets(request);

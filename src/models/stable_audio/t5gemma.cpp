@@ -375,4 +375,8 @@ StableAudioT5Encoding StableAudioT5EncoderRuntime::encode(const StableAudioToken
     return graph_->encode(tokens);
 }
 
+void StableAudioT5EncoderRuntime::release_runtime_graphs() const {
+    graph_.reset();
+}
+
 }  // namespace engine::models::stable_audio

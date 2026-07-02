@@ -54,6 +54,8 @@ void validate_session_options(const runtime::SessionOptions & options) {
             key == "heartmula.codec_conditioning_graph_arena_mb" ||
             key == "heartmula.codec_scalar_decoder_graph_arena_mb") {
             (void) value;
+        } else if (key == "heartmula.mem_saver") {
+            (void) runtime::parse_bool_option(value, key);
         } else if (key.rfind("heartmula.", 0) == 0) {
             throw std::runtime_error("unknown HeartMuLa session option: " + key);
         }
@@ -238,6 +240,9 @@ HeartMuLaSession::HeartMuLaSession(
               : (options.options.find("heartmula.weight_type") != options.options.end()
                       ? engine::assets::parse_tensor_storage_type(options.options.at("heartmula.weight_type"))
                       : codec_weight_storage_type_)) {
+    if (const auto mem_saver = runtime::find_option(RuntimeSessionBase::options().options, {"heartmula.mem_saver"})) {
+        mem_saver_ = runtime::parse_bool_option(*mem_saver, "heartmula.mem_saver");
+    }
     if (task_.mode != runtime::RunMode::Offline) {
         throw std::runtime_error("HeartMuLa currently supports offline sessions");
     }
@@ -314,7 +319,11 @@ runtime::TaskResult HeartMuLaSession::run(const runtime::TaskRequest & request) 
                 mula_,
                 chunk_seed);
             const auto ar_end = Clock::now();
-            mula_.clear_graph_cache();
+            if (mem_saver_) {
+                mula_.clear_graph_cache();
+            } else {
+                mula_.release_graph_workspaces();
+            }
             const auto codec_start = Clock::now();
             auto decoded = codec_.detokenize_codes(
                 frames.codes,
@@ -336,7 +345,9 @@ runtime::TaskResult HeartMuLaSession::run(const runtime::TaskRequest & request) 
                     static_cast<int>(decoded.channels),
                     std::move(decoded.values),
                 });
-            codec_.clear_graph_cache();
+            if (mem_saver_) {
+                codec_.clear_graph_cache();
+            }
         }
 
         runtime::TaskResult result;
@@ -352,7 +363,15 @@ runtime::TaskResult HeartMuLaSession::run(const runtime::TaskRequest & request) 
     const auto ar_start = Clock::now();
     const auto frames = generate_heartmula_frames(heartmula_request, text_tokenizer_, mula_, seed);
     const auto ar_end = Clock::now();
-    mula_.release_graph_workspaces();
+    if (mem_saver_) {
+        const auto release_start = Clock::now();
+        mula_.clear_graph_cache();
+        engine::debug::timing_log_scalar(
+            "heartmula.mula_release.runtime_graphs_ms",
+            engine::debug::elapsed_ms(release_start, Clock::now()));
+    } else {
+        mula_.release_graph_workspaces();
+    }
     const auto codec_start = Clock::now();
     auto decoded = codec_.detokenize_codes(
         frames.codes,
@@ -363,6 +382,13 @@ runtime::TaskResult HeartMuLaSession::run(const runtime::TaskRequest & request) 
         frames.codec_randn_philox_offset,
         frames.codec_randn_call_offset_blocks);
     const auto codec_end = Clock::now();
+    if (mem_saver_) {
+        const auto release_start = Clock::now();
+        codec_.clear_graph_cache();
+        engine::debug::timing_log_scalar(
+            "heartmula.codec_release.runtime_graphs_ms",
+            engine::debug::elapsed_ms(release_start, Clock::now()));
+    }
 
     runtime::TaskResult result;
     result.audio_output = runtime::AudioBuffer{

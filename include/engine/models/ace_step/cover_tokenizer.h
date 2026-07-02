@@ -24,6 +24,7 @@ public:
         const std::vector<float> & silence_latent,
         int64_t silence_frames,
         int64_t silence_channels) const;
+    void release_runtime_graphs() const;
 
 private:
     class Impl;

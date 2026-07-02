@@ -42,6 +42,7 @@ public:
 
     void prepare() const;
     StableAudioConditioningInputs encode(const StableAudioConditioningBatch & inputs) const;
+    void release_runtime_graphs() const;
 
 private:
     StableAudioConditionedInput encode_one(

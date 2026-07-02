@@ -46,6 +46,7 @@ private:
     size_t codec_scalar_decoder_graph_arena_bytes_ = 1536ull * 1024ull * 1024ull;
     assets::TensorStorageType mula_weight_storage_type_ = assets::TensorStorageType::Native;
     assets::TensorStorageType codec_weight_storage_type_ = assets::TensorStorageType::Native;
+    bool mem_saver_ = false;
     HeartMuLaTextTokenizer text_tokenizer_;
     HeartMuLaWeightsRuntime mula_;
     HeartCodecWeightsRuntime codec_;

@@ -96,6 +96,7 @@ public:
         std::string_view sampler_type,
         float cfg_scale,
         float apg_scale) const;
+    void release_runtime_graphs() const;
 
 private:
     class Graph;

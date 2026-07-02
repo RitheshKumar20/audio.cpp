@@ -96,6 +96,7 @@ public:
         int64_t audio_sample_size,
         uint64_t seed,
         uint64_t & rng_offset_blocks) const;
+    void release_runtime_graphs() const;
 
 private:
     class Graph;

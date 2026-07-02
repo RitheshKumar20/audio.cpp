@@ -419,6 +419,10 @@ AceStepLatents AceStepVAEEncoderRuntimeCore::encode(
     return stitched;
 }
 
+void AceStepVAEEncoderRuntimeCore::release_runtime_graphs() {
+    graph_.reset();
+}
+
 }  // namespace engine::models::ace_step::vae_common
 
 namespace engine::models::ace_step {
@@ -452,6 +456,10 @@ public:
 
     AceStepLatents encode(const runtime::AudioBuffer & audio, uint32_t seed, const std::string & noise_file) {
         return runtime_->encode(audio, seed, noise_file);
+    }
+
+    void release_runtime_graphs() {
+        runtime_->release_runtime_graphs();
     }
 
 private:
@@ -498,6 +506,10 @@ AceStepLatents AceStepVAEEncoderRuntime::encode(
     uint32_t seed,
     const std::string & noise_file) {
     return impl_->encode(audio, seed, noise_file);
+}
+
+void AceStepVAEEncoderRuntime::release_runtime_graphs() const {
+    impl_->release_runtime_graphs();
 }
 
 }  // namespace engine::models::ace_step

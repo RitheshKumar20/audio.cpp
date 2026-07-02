@@ -197,6 +197,7 @@ public:
         size_t graph_arena_bytes);
 
     AceStepLatents encode(const runtime::AudioBuffer & audio, uint32_t seed, const std::string & noise_file);
+    void release_runtime_graphs();
 
 private:
     void ensure_graph(int64_t audio_frames);

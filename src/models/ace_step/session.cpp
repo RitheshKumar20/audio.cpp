@@ -2,6 +2,7 @@
 
 #include "engine/framework/assets/tensor_source.h"
 #include "engine/framework/debug/profiler.h"
+#include "engine/framework/runtime/options.h"
 #include "engine/models/ace_step/prompt_builder.h"
 #include "engine/models/ace_step/repaint.h"
 #include "engine/models/ace_step/request_parser.h"
@@ -135,6 +136,13 @@ assets::TensorStorageType dit_weight_type_from_options(const runtime::SessionOpt
     return storage_type;
 }
 
+bool mem_saver_from_options(const runtime::SessionOptions & options) {
+    if (const auto value = runtime::find_option(options.options, {"ace_step.mem_saver", "mem_saver"})) {
+        return runtime::parse_bool_option(*value, "ace_step.mem_saver");
+    }
+    return false;
+}
+
 }  // namespace
 
 AceStepSession::AceStepSession(runtime::TaskSpec task, runtime::SessionOptions options,
@@ -147,7 +155,8 @@ AceStepSession::AceStepSession(runtime::TaskSpec task, runtime::SessionOptions o
       text_encoder_weight_storage_type_(
           weight_type_from_options(RuntimeSessionBase::options(), "ace_step.text_encoder_weight_type")),
       dit_weight_storage_type_(dit_weight_type_from_options(RuntimeSessionBase::options())),
-      vae_weight_storage_type_(weight_type_from_options(RuntimeSessionBase::options(), "ace_step.vae_weight_type")) {
+      vae_weight_storage_type_(weight_type_from_options(RuntimeSessionBase::options(), "ace_step.vae_weight_type")),
+      mem_saver_(mem_saver_from_options(RuntimeSessionBase::options())) {
     if (task_.task != runtime::VoiceTaskKind::AudioGeneration) {
         throw std::runtime_error("ACE-Step supports only the gen task");
     }
@@ -240,6 +249,13 @@ runtime::TaskResult AceStepSession::run(const runtime::TaskRequest &request) {
     AceStepDiffusionConditioning conditioning = {};
     conditioning.request = ace_request;
     conditioning.pre_dit = std::move(pre_dit);
+    if (mem_saver_) {
+        const auto pre_dit_release_start = Clock::now();
+        pre_dit_->release_runtime_graphs();
+        engine::debug::timing_log_scalar(
+            "ace_step.session.pre_dit_release.runtime_graphs_ms",
+            engine::debug::elapsed_ms(pre_dit_release_start, Clock::now()));
+    }
     const AceStepGenerationOptions generation_options =
         normalize_generation_options_for_model(ace_request.generation, *assets_);
     const auto diffusion_start = Clock::now();
@@ -259,6 +275,13 @@ runtime::TaskResult AceStepSession::run(const runtime::TaskRequest &request) {
     const auto vae_decode_start = Clock::now();
     runtime::AudioBuffer audio = vae_decoder_->decode(latents);
     engine::debug::timing_log_scalar("ace_step.session.vae_decode_ms", engine::debug::elapsed_ms(vae_decode_start, Clock::now()));
+    if (mem_saver_) {
+        const auto vae_release_start = Clock::now();
+        vae_decoder_->release_runtime_graphs();
+        engine::debug::timing_log_scalar(
+            "ace_step.session.vae_release.runtime_graphs_ms",
+            engine::debug::elapsed_ms(vae_release_start, Clock::now()));
+    }
 
     const auto repaint_splice_start = Clock::now();
     if (route.task == AceStepTaskType::Repaint) {

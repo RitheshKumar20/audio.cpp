@@ -486,6 +486,11 @@ public:
         return audio_codes;
     }
 
+    void release_runtime_graphs() const {
+        graph_.reset();
+        input_buffer_.clear();
+    }
+
 private:
     void ensure_weights() const {
         if (!weights_) {
@@ -523,6 +528,10 @@ std::vector<int32_t> AceStepCoverTokenizerRuntime::encode_audio_codes(
     int64_t silence_frames,
     int64_t silence_channels) const {
     return impl_->encode_audio_codes(latents, silence_latent, silence_frames, silence_channels);
+}
+
+void AceStepCoverTokenizerRuntime::release_runtime_graphs() const {
+    impl_->release_runtime_graphs();
 }
 
 }  // namespace engine::models::ace_step

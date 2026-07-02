@@ -60,6 +60,7 @@ public:
 
     void prepare() const;
     StableAudioT5Encoding encode(const StableAudioTokenBatch & tokens) const;
+    void release_runtime_graphs() const;
 
 private:
     class Graph;

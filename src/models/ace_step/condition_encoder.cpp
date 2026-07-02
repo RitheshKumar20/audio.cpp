@@ -777,6 +777,12 @@ public:
         return out;
     }
 
+    void release_runtime_graphs() const {
+        text_projector_.reset();
+        lyric_encoder_.reset();
+        timbre_encoder_.reset();
+    }
+
 private:
     AceStepTextConditioning project_text(const AceStepTextConditioning & input) const {
         if (!text_projector_ || !text_projector_->can_run(input.tokens)) {
@@ -888,6 +894,10 @@ AceStepEncoderConditioning AceStepConditionEncoderRuntime::encode(
         refer_audio_count,
         refer_audio_frames,
         refer_audio_order_mask);
+}
+
+void AceStepConditionEncoderRuntime::release_runtime_graphs() const {
+    impl_->release_runtime_graphs();
 }
 
 }  // namespace engine::models::ace_step

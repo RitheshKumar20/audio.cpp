@@ -1422,4 +1422,9 @@ std::vector<float> StableAudioSameRuntime::encode(
     return out;
 }
 
+void StableAudioSameRuntime::release_runtime_graphs() const {
+    graph_.reset();
+    encoder_graph_.reset();
+}
+
 }  // namespace engine::models::stable_audio

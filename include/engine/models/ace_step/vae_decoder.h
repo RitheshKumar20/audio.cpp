@@ -22,6 +22,7 @@ public:
     ~AceStepVAEDecoderRuntime();
 
     runtime::AudioBuffer decode(const AceStepLatents & latents) const;
+    void release_runtime_graphs() const;
 
 private:
     class Impl;

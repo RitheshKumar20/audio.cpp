@@ -34,6 +34,7 @@ audiocpp_cli --task gen --family ace_step --model models/Ace-Step1.5 --backend c
 | `--duration-seconds` | float, `-1` for auto | `-1` | Target duration. |
 | `--num-inference-steps` | integer | `8` | Diffusion denoising steps. |
 | `--guidance-scale` | float | `1.0` | Diffusion guidance scale. |
+| `--session-option ace_step.mem_saver=true|false` | bool | `false` | Release staged graph/cache state after request phases to reduce resident VRAM. Later requests may rebuild released graphs. |
 
 ## Stable Audio
 
@@ -71,6 +72,7 @@ audiocpp_cli --task gen --family stable_audio --model models/stable-audio-3-smal
 | `--request-option init_noise_level=<float>` | `0..1` | `1.0` | Strength for init-audio conditioning. |
 | `--request-option inpaint_mask_start_seconds=<list>` | comma-separated seconds | not set | Inpaint region start times. |
 | `--request-option inpaint_mask_end_seconds=<list>` | comma-separated seconds | not set | Inpaint region end times. |
+| `--session-option stable_audio.mem_saver=true|false` | bool | `false` | Release staged graph/cache state after request phases to reduce resident VRAM. Later requests may rebuild released graphs. |
 
 ## HeartMuLa
 
@@ -113,5 +115,6 @@ audiocpp_cli --task gen --family heartmula --model models/HeartMuLa --backend cu
 | `--text-chunk-size` | chars | `4096` | Text chunk size for infinite mode. |
 | `--request-option infinite_chunk_audio_length_ms=<n>` | milliseconds | `240000` | Per-chunk audio cap for infinite mode. |
 | `--seed` | integer | `1234` | Generation seed. |
+| `--session-option heartmula.mem_saver=true|false` | bool | `false` | Release staged graph/cache state after AR/codec phases and infinite-mode chunks to reduce resident VRAM. Later requests may rebuild released graphs. |
 
 For backend weight-type controls, use `audiocpp_cli --inspect --model <model-dir> --family <family>`.

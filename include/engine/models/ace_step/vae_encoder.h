@@ -22,6 +22,7 @@ public:
     ~AceStepVAEEncoderRuntime();
 
     AceStepLatents encode(const runtime::AudioBuffer & audio, uint32_t seed, const std::string & noise_file = {});
+    void release_runtime_graphs() const;
 
 private:
     class Impl;

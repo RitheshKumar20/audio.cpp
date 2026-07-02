@@ -893,6 +893,10 @@ public:
         return out;
     }
 
+    void release_runtime_graphs() {
+        decode_graph_.reset();
+    }
+
     std::shared_ptr<const AceStepAssets> assets_;
     ggml_backend_t backend_ = nullptr;
     core::BackendType backend_type_ = core::BackendType::Cpu;
@@ -919,6 +923,10 @@ AceStepVAEDecoderRuntime::~AceStepVAEDecoderRuntime() = default;
 
 runtime::AudioBuffer AceStepVAEDecoderRuntime::decode(const AceStepLatents & latents) const {
     return impl_->decode(latents);
+}
+
+void AceStepVAEDecoderRuntime::release_runtime_graphs() const {
+    impl_->release_runtime_graphs();
 }
 
 }  // namespace engine::models::ace_step

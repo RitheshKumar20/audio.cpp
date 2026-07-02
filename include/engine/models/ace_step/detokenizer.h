@@ -19,6 +19,7 @@ public:
     ~AceStepAudioDetokenizerRuntime();
 
     AceStepLatents decode_audio_codes(const std::vector<int32_t> & audio_code_ids) const;
+    void release_runtime_graphs() const;
 
 private:
     class Impl;

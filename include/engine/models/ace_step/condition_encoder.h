@@ -31,6 +31,7 @@ public:
         int64_t refer_audio_count,
         int64_t refer_audio_frames,
         const std::vector<int32_t> & refer_audio_order_mask) const;
+    void release_runtime_graphs() const;
 
 private:
     class Impl;

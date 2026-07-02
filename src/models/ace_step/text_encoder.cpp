@@ -322,18 +322,7 @@ public:
     }
 
     ~Graph() {
-        if (backend_ != nullptr && graph_ != nullptr) {
-            engine::core::release_backend_graph_resources(backend_, graph_);
-        }
-        if (backend_ != nullptr && embedding_graph_ != nullptr) {
-            engine::core::release_backend_graph_resources(backend_, embedding_graph_);
-        }
-        if (buffer_ != nullptr) {
-            ggml_backend_buffer_free(buffer_);
-        }
-        if (embedding_buffer_ != nullptr) {
-            ggml_backend_buffer_free(embedding_buffer_);
-        }
+        release_runtime_graphs();
     }
 
     AceStepTextConditioning encode(const AceStepTokenizedText & tokens) const {
@@ -423,6 +412,36 @@ public:
             "ace_step.text_encoder.embed.total_ms",
             engine::debug::elapsed_ms(total_start, Clock::now()));
         return out;
+    }
+
+    void release_runtime_graphs() const {
+        if (backend_ != nullptr && graph_ != nullptr) {
+            engine::core::release_backend_graph_resources(backend_, graph_);
+        }
+        if (backend_ != nullptr && embedding_graph_ != nullptr) {
+            engine::core::release_backend_graph_resources(backend_, embedding_graph_);
+        }
+        if (buffer_ != nullptr) {
+            ggml_backend_buffer_free(buffer_);
+        }
+        if (embedding_buffer_ != nullptr) {
+            ggml_backend_buffer_free(embedding_buffer_);
+        }
+        buffer_ = nullptr;
+        embedding_buffer_ = nullptr;
+        ctx_.reset();
+        embedding_ctx_.reset();
+        input_ids_ = nullptr;
+        positions_ = nullptr;
+        output_ = nullptr;
+        graph_ = nullptr;
+        input_ids_value_ = {};
+        encode_capacity_ = 0;
+        embedding_input_ids_ = nullptr;
+        embedding_output_ = nullptr;
+        embedding_graph_ = nullptr;
+        embedding_input_ids_value_ = {};
+        embedding_capacity_ = 0;
     }
 
 private:
@@ -587,6 +606,12 @@ AceStepQwenTextEncoderRuntime::~AceStepQwenTextEncoderRuntime() = default;
 void AceStepQwenTextEncoderRuntime::prepare_runtime() const {
     if (!graph_) {
         graph_ = std::make_unique<Graph>(*execution_, assets_, weight_storage_type_);
+    }
+}
+
+void AceStepQwenTextEncoderRuntime::release_runtime_graphs() const {
+    if (graph_) {
+        graph_->release_runtime_graphs();
     }
 }
 

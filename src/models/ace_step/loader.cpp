@@ -163,6 +163,7 @@ public:
             {"ace_step.planner_weight_type", "native|f32|f16|bf16|q8_0", "Planner LM weight storage type."},
             {"ace_step.text_encoder_weight_type", "native|f32|f16|bf16|q8_0", "Text encoder weight storage type."},
             {"ace_step.vae_weight_type", "native|f32|f16|bf16|q8_0", "VAE weight storage type."},
+            {"ace_step.mem_saver", "true|false", "Release staged runtime graphs after each request; default false."},
         };
         inspection.cli.load_options = {
             {"ace_step.dit_model_path", "dir", "DiT subdirectory inside the model root."},

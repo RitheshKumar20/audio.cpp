@@ -196,6 +196,18 @@ StableAudioSession::StableAudioSession(
         weight_storage_type_ = engine::assets::parse_tensor_storage_type(it->second);
         validate_weight_storage(weight_storage_type_, "stable_audio.weight_type");
     }
+    if (const auto mem_saver = runtime::find_option(this->options().options, {"stable_audio.mem_saver"})) {
+        mem_saver_ = runtime::parse_bool_option(*mem_saver, "stable_audio.mem_saver");
+    }
+    for (const auto & [key, value] : this->options().options) {
+        if (key == "stable_audio.max_batch" || key == "stable_audio.weight_type" || key == "stable_audio.mem_saver") {
+            (void) value;
+            continue;
+        }
+        if (key.rfind("stable_audio.", 0) == 0) {
+            throw std::runtime_error("unknown Stable Audio session option: " + key);
+        }
+    }
 }
 
 StableAudioSession::~StableAudioSession() = default;
@@ -312,6 +324,13 @@ runtime::TaskResult StableAudioSession::run(const runtime::TaskRequest & request
     engine::debug::timing_log_scalar(
         "stable_audio.conditioner_ms",
         engine::debug::elapsed_ms(conditioner_start, Clock::now()));
+    if (mem_saver_) {
+        const auto release_start = Clock::now();
+        conditioner_runtime_->release_runtime_graphs();
+        engine::debug::timing_log_scalar(
+            "stable_audio.conditioner_release.runtime_graphs_ms",
+            engine::debug::elapsed_ms(release_start, Clock::now()));
+    }
     const auto rf_start = Clock::now();
     const auto latents = rf_dit_->sample(
         sampling,
@@ -325,6 +344,13 @@ runtime::TaskResult StableAudioSession::run(const runtime::TaskRequest & request
     engine::debug::timing_log_scalar(
         "stable_audio.rf_dit_ms",
         engine::debug::elapsed_ms(rf_start, Clock::now()));
+    if (mem_saver_) {
+        const auto release_start = Clock::now();
+        rf_dit_->release_runtime_graphs();
+        engine::debug::timing_log_scalar(
+            "stable_audio.rf_dit_release.runtime_graphs_ms",
+            engine::debug::elapsed_ms(release_start, Clock::now()));
+    }
     const auto same_start = Clock::now();
     auto audio_outputs = same_->decode(
         latents,
@@ -336,6 +362,13 @@ runtime::TaskResult StableAudioSession::run(const runtime::TaskRequest & request
     engine::debug::timing_log_scalar(
         "stable_audio.same_decode_ms",
         engine::debug::elapsed_ms(same_start, Clock::now()));
+    if (mem_saver_) {
+        const auto release_start = Clock::now();
+        same_->release_runtime_graphs();
+        engine::debug::timing_log_scalar(
+            "stable_audio.same_release.runtime_graphs_ms",
+            engine::debug::elapsed_ms(release_start, Clock::now()));
+    }
     engine::debug::timing_log_scalar(
         "session.wall_ms",
         engine::debug::elapsed_ms(wall_start, Clock::now()));

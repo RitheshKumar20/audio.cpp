@@ -71,6 +71,10 @@ StableAudioConditioningInputs StableAudioConditionerRuntime::encode(const Stable
     return out;
 }
 
+void StableAudioConditionerRuntime::release_runtime_graphs() const {
+    t5_.release_runtime_graphs();
+}
+
 StableAudioConditionedInput StableAudioConditionerRuntime::encode_one(
     const StableAudioTokenBatch & tokens,
     const std::vector<float> & normalized_seconds,

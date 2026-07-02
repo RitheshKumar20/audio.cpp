@@ -37,6 +37,7 @@ private:
     std::unique_ptr<StableAudioRfDitRuntime> rf_dit_;
     std::unique_ptr<StableAudioSameRuntime> same_;
     int64_t max_batch_ = 4;
+    bool mem_saver_ = false;
 };
 
 }  // namespace engine::models::stable_audio

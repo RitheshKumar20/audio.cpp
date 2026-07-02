@@ -1061,4 +1061,8 @@ std::vector<float> StableAudioRfDitRuntime::sample(
     return graph_->sample(sampling, conditioning, seed, rng_offset_blocks, rng_policy, sampler_type, cfg_scale, apg_scale);
 }
 
+void StableAudioRfDitRuntime::release_runtime_graphs() const {
+    graph_.reset();
+}
+
 }  // namespace engine::models::stable_audio
