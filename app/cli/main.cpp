@@ -6,16 +6,19 @@
 #include "../workflow/pipeline.h"
 #include "../workflow/workflow.h"
 
+#include "engine/framework/audio/chunking.h"
 #include "engine/framework/audio/conversion.h"
 #include "engine/framework/debug/trace.h"
 #include "engine/framework/runtime/registry.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <fstream>
 #include <filesystem>
 #include <iostream>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -116,6 +119,10 @@ void print_task_list_help() {
         << "    --out-dir <dir>  Write named multi-audio outputs or batch request outputs\n"
         << "    --text-out <txt>\n"
         << "    --segments-out <json>\n"
+        << "    --vad-chunks-out <json>  Write offline VAD-based chunk windows\n"
+        << "    --vad-chunk-max-seconds <float>  Maximum VAD chunk length, default 45\n"
+        << "    --vad-chunk-merge-gap-seconds <float>  Merge nearby VAD spans, default 0.5\n"
+        << "    --vad-chunk-padding-seconds <float>  Pad each VAD span before chunking, default 0.25\n"
         << "    --turns-out <json>\n"
         << "    --words-out <json>\n"
         << "    --voice-state-out <safetensors>  Export PocketTTS voice state from --voice-ref\n"
@@ -277,6 +284,10 @@ void print_model_help(const engine::runtime::ModelInspection & inspection) {
               << "    --out-dir <dir>\n"
               << "    --text-out <txt>\n"
               << "    --segments-out <json>\n"
+              << "    --vad-chunks-out <json>\n"
+              << "    --vad-chunk-max-seconds <float>\n"
+              << "    --vad-chunk-merge-gap-seconds <float>\n"
+              << "    --vad-chunk-padding-seconds <float>\n"
               << "    --turns-out <json>\n"
               << "    --words-out <json>\n";
 }
@@ -346,6 +357,77 @@ void print_inspection(const engine::runtime::ModelInspection & inspection) {
     for (const auto & weight : inspection.discovered_weights) {
         std::cout << "weight=" << weight.id << ":" << weight.path.string() << "\n";
     }
+}
+
+bool has_vad_chunk_option(int argc, char ** argv) {
+    return minitts::cli::optional_path_arg(argc, argv, "--vad-chunks-out").has_value() ||
+        minitts::cli::find_arg(argc, argv, "--vad-chunk-max-seconds").has_value() ||
+        minitts::cli::find_arg(argc, argv, "--vad-chunk-merge-gap-seconds").has_value() ||
+        minitts::cli::find_arg(argc, argv, "--vad-chunk-padding-seconds").has_value();
+}
+
+int64_t seconds_to_samples(float seconds, int sample_rate, const std::string & name) {
+    if (seconds < 0.0F) {
+        throw std::runtime_error(name + " must be non-negative");
+    }
+    return static_cast<int64_t>(std::llround(static_cast<double>(seconds) * sample_rate));
+}
+
+engine::audio::VadAudioChunkOptions vad_chunk_options_from_cli(
+    int argc,
+    char ** argv,
+    int sample_rate) {
+    if (sample_rate <= 0) {
+        throw std::runtime_error("VAD chunk planning requires a positive audio sample rate");
+    }
+    const float max_seconds = minitts::cli::parse_optional_float_arg(argc, argv, "--vad-chunk-max-seconds").value_or(45.0F);
+    const float merge_gap_seconds = minitts::cli::parse_optional_float_arg(argc, argv, "--vad-chunk-merge-gap-seconds").value_or(0.5F);
+    const float padding_seconds = minitts::cli::parse_optional_float_arg(argc, argv, "--vad-chunk-padding-seconds").value_or(0.25F);
+    auto options = engine::audio::VadAudioChunkOptions{
+        seconds_to_samples(max_seconds, sample_rate, "--vad-chunk-max-seconds"),
+        seconds_to_samples(merge_gap_seconds, sample_rate, "--vad-chunk-merge-gap-seconds"),
+        seconds_to_samples(padding_seconds, sample_rate, "--vad-chunk-padding-seconds"),
+    };
+    if (options.max_chunk_samples <= 0) {
+        throw std::runtime_error("--vad-chunk-max-seconds must be positive");
+    }
+    return options;
+}
+
+std::string vad_chunks_to_json(const std::vector<engine::runtime::TimeSpan> & chunks) {
+    std::ostringstream out;
+    out << "[";
+    for (size_t i = 0; i < chunks.size(); ++i) {
+        if (i != 0) {
+            out << ",";
+        }
+        out << "{\"index\":" << i
+            << ",\"start_sample\":" << chunks[i].start_sample
+            << ",\"end_sample\":" << chunks[i].end_sample
+            << "}";
+    }
+    out << "]";
+    return out.str();
+}
+
+void write_vad_chunks_output(
+    const engine::runtime::TaskResult & result,
+    const engine::runtime::AudioBuffer & audio,
+    const std::filesystem::path & path,
+    const engine::audio::VadAudioChunkOptions & options) {
+    if (audio.channels <= 0) {
+        throw std::runtime_error("VAD chunk planning requires positive audio channels");
+    }
+    if (audio.samples.size() % static_cast<size_t>(audio.channels) != 0) {
+        throw std::runtime_error("VAD chunk planning requires audio samples divisible by channel count");
+    }
+    const int64_t audio_frames = static_cast<int64_t>(audio.samples.size() / static_cast<size_t>(audio.channels));
+    const auto chunks = engine::audio::plan_vad_audio_chunks(result.speech_segments, audio_frames, options);
+    if (!path.parent_path().empty()) {
+        std::filesystem::create_directories(path.parent_path());
+    }
+    std::ofstream(path) << vad_chunks_to_json(chunks);
+    std::cout << "vad_chunks_out=" << path.string() << "\n";
 }
 
 void run_streaming(
@@ -537,6 +619,7 @@ int main(int argc, char ** argv) {
         const auto voice_state_out = optional_path_arg(argc, argv, "--voice-state-out");
         const auto text_out = optional_path_arg(argc, argv, "--text-out");
         const auto words_out = optional_path_arg(argc, argv, "--words-out");
+        const auto vad_chunks_out = optional_path_arg(argc, argv, "--vad-chunks-out");
 
         if (has_batch_input(argc, argv)) {
             if (task_spec.mode != engine::runtime::RunMode::Offline) {
@@ -544,6 +627,9 @@ int main(int argc, char ** argv) {
             }
             if (voice_state_out.has_value()) {
                 throw std::runtime_error("--voice-state-out is not supported with batch inputs");
+            }
+            if (has_vad_chunk_option(argc, argv)) {
+                throw std::runtime_error("VAD chunk output options are not supported with batch inputs");
             }
             const auto merge_mode = minitts::app::parse_audio_merge_mode(
                 find_arg(argc, argv, "--batch-merge-audio").value_or("none"));
@@ -598,6 +684,18 @@ int main(int argc, char ** argv) {
         }
 
         auto request = build_request_from_cli(argc, argv);
+        if (has_vad_chunk_option(argc, argv)) {
+            if (task_spec.mode != engine::runtime::RunMode::Offline ||
+                task_spec.task != engine::runtime::VoiceTaskKind::Vad) {
+                throw std::runtime_error("VAD chunk output options require offline --task vad");
+            }
+            if (!vad_chunks_out.has_value()) {
+                throw std::runtime_error("VAD chunk options require --vad-chunks-out");
+            }
+            if (!request.audio_input.has_value()) {
+                throw std::runtime_error("VAD chunk output requires --audio");
+            }
+        }
         if (words_out.has_value()) {
             request.options["return_timestamps"] = "true";
         }
@@ -634,6 +732,13 @@ int main(int argc, char ** argv) {
                 optional_path_arg(argc, argv, "--segments-out"),
                 optional_path_arg(argc, argv, "--turns-out"),
                 words_out);
+            if (vad_chunks_out.has_value()) {
+                write_vad_chunks_output(
+                    result,
+                    *request.audio_input,
+                    *vad_chunks_out,
+                    vad_chunk_options_from_cli(argc, argv, request.audio_input->sample_rate));
+            }
             if (text_out.has_value()) {
                 write_text_output(result, *text_out, "text_out");
             }

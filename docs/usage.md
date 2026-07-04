@@ -31,6 +31,7 @@ audiocpp_cli --task <task> --family <family> --model <model-dir> --backend <back
 | `--out` | audio-producing models | Output WAV path. |
 | `--out-dir` | multi-output or batch models | Output directory. |
 | `--segments-out` | VAD | Speech segments JSON. |
+| `--vad-chunks-out` | offline VAD | VAD-based audio chunk windows JSON. |
 | `--turns-out` | diarization | Speaker turns JSON. |
 | `--words-out` | ASR/alignment | Word timestamps JSON. |
 

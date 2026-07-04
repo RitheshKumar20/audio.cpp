@@ -547,6 +547,13 @@ if (ENGINE_BUILD_TESTS)
         COMMAND audio_dsp_test
     )
 
+    add_engine_unittest(audio_chunking_test tests/unittests/test_audio_chunking.cpp)
+
+    add_test(
+        NAME audio_chunking_test
+        COMMAND audio_chunking_test
+    )
+
     add_engine_unittest(rnnoise_utility_test tests/unittests/test_rnnoise_utility.cpp)
     target_compile_definitions(rnnoise_utility_test PRIVATE
         ENGINE_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"

@@ -350,6 +350,7 @@ Useful CLI features:
 - `--log` streams framework logs to stdout
 - `--log-file <path>` streams framework logs to a file in real time
 - `--segments-out`, `--turns-out`, and `--words-out` write structured JSON outputs
+- `--vad-chunks-out` writes offline VAD-based chunk windows; tune them with `--vad-chunk-max-seconds`, `--vad-chunk-merge-gap-seconds`, and `--vad-chunk-padding-seconds`
 
 ### Pipelines
 
@@ -569,6 +570,10 @@ The main harness under `tests/` is `tests/warmbench.py`. It is used for long-liv
 The main app-facing test tooling under `tools/` is `tools/audiocpp_cli/run_audiocpp_cli_path_tests.py`. It drives `audiocpp_cli` through cataloged offline and streaming-shaped cases, verifies expected outputs such as audio or JSON artifacts, and is useful for checking real user-facing request paths rather than just lower-level model components. The streaming-shaped coverage here refers to the CLI/request path surface; it should not be read as a claim that streaming inference is broadly supported across the framework today.
 
 The Python-reference side of these tests usually requires more time-consuming setup than the C++ path because different models rely on different Python reference repos and dependency stacks. In practice, the framework-side tooling is fast to iterate on once models are installed, while Python parity runs often need extra environment preparation before they are ready.
+
+## Projects
+
+- [Pocket TTS Browser Engine](https://github.com/jjmlovesgit/pocket-tts-browser-engine) uses audio.cpp to bring fully local PocketTTS voices into Chrome and Edge through the browser TTS API.
 
 ## Performance Metrics
 

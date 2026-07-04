@@ -1,5 +1,7 @@
 #pragma once
 
+#include "engine/framework/runtime/session.h"
+
 #include <cstdint>
 #include <vector>
 
@@ -36,7 +38,22 @@ struct AudioChunkSpan {
     int64_t valid_start_in_chunk = 0;
 };
 
+struct VadAudioChunkOptions {
+    int64_t max_chunk_samples = 0;
+    int64_t merge_gap_samples = 0;
+    int64_t padding_samples = 0;
+};
+
 std::vector<AudioChunkSpan> plan_audio_chunks(int64_t input_samples, const AudioChunkSpec & spec);
+
+std::vector<runtime::TimeSpan> plan_vad_audio_chunks(
+    const std::vector<runtime::SpeechSegment> & segments,
+    int64_t audio_samples,
+    const VadAudioChunkOptions & options);
+
+runtime::AudioBuffer slice_audio_buffer(
+    const runtime::AudioBuffer & audio,
+    const runtime::TimeSpan & span);
 
 std::vector<float> make_triangular_overlap_window(int64_t chunk_samples);
 std::vector<float> make_linear_fade_window(int64_t chunk_samples, int64_t fade_samples);
