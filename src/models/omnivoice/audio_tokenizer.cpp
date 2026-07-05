@@ -40,7 +40,6 @@ namespace assets_ns = engine::assets;
 namespace modules = engine::modules;
 constexpr float kTargetReferenceRms = 0.1F;
 constexpr float kSilenceThresholdDb = -50.0F;
-constexpr int64_t kMaxReferenceAudioMs = 10000;
 
 struct GgmlContextDeleter {
     void operator()(ggml_context * ctx) const noexcept {
@@ -404,11 +403,6 @@ std::vector<float> preprocess_reference_mono(
     }
     mono_pcm16 = remove_mid_silence_pcm16(mono_pcm16, sample_rate, 200, 200, kSilenceThresholdDb);
     mono_pcm16 = trim_edges_pcm16(mono_pcm16, sample_rate, 100, 200, kSilenceThresholdDb);
-    mono_pcm16 = slice_pcm16_ms(
-        mono_pcm16,
-        sample_rate,
-        0,
-        std::min<int64_t>(kMaxReferenceAudioMs, samples_to_ms(mono_pcm16.size(), sample_rate)));
     if (mono_pcm16.empty()) {
         throw std::runtime_error(
             "OmniVoice reference audio is empty after silence removal; try preprocess_prompt=false");

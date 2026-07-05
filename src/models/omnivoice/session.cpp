@@ -43,7 +43,7 @@ bool mem_saver_from_options(const runtime::SessionOptions & options) {
     if (const auto value = runtime::find_option(options.options, {"omnivoice.mem_saver", "mem_saver"})) {
         return runtime::parse_bool_option(*value, "omnivoice.mem_saver");
     }
-    return true;
+    return false;
 }
 
 using Clock = std::chrono::steady_clock;
