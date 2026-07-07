@@ -33,6 +33,12 @@ GPU (CUDA):
 docker compose -f cuda-server.yml up
 ```
 
+**3. Optionally: Wait for server to be ready**
+
+```bash
+./wait-for-server.sh
+```
+
 ## Generate speech
 
 ```bash
