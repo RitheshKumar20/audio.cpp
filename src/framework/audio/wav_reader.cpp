@@ -9,7 +9,7 @@ namespace engine::audio {
 namespace {
 
 template <typename T>
-T read_scalar(std::ifstream & input) {
+T read_scalar(std::istream & input) {
     T value{};
     input.read(reinterpret_cast<char *>(&value), sizeof(T));
     if (!input) {
@@ -18,7 +18,7 @@ T read_scalar(std::ifstream & input) {
     return value;
 }
 
-void skip_bytes(std::ifstream & input, std::streamoff count) {
+void skip_bytes(std::istream & input, std::streamoff count) {
     input.seekg(count, std::ios::cur);
     if (!input) {
         throw std::runtime_error("failed to seek inside WAV file");
@@ -27,22 +27,21 @@ void skip_bytes(std::ifstream & input, std::streamoff count) {
 
 }  // namespace
 
-WavData read_wav_f32(const std::filesystem::path & path) {
-    std::ifstream input(path, std::ios::binary);
+WavData read_wav_f32(std::istream & input) {
     if (!input) {
-        throw std::runtime_error("could not open WAV input: " + path.string());
+        throw std::runtime_error("could not open WAV input");
     }
 
     char riff[4];
     input.read(riff, 4);
     if (!input || std::string(riff, 4) != "RIFF") {
-        throw std::runtime_error("invalid WAV RIFF header: " + path.string());
+        throw std::runtime_error("invalid WAV RIFF header");
     }
     skip_bytes(input, 4);
     char wave[4];
     input.read(wave, 4);
     if (!input || std::string(wave, 4) != "WAVE") {
-        throw std::runtime_error("invalid WAV WAVE header: " + path.string());
+        throw std::runtime_error("invalid WAV WAVE header");
     }
 
     uint16_t audio_format = 0;
@@ -72,7 +71,7 @@ WavData read_wav_f32(const std::filesystem::path & path) {
             data.resize(chunk_size);
             input.read(data.data(), static_cast<std::streamsize>(chunk_size));
             if (!input) {
-                throw std::runtime_error("failed to read WAV data chunk: " + path.string());
+                throw std::runtime_error("failed to read WAV data chunk");
             }
         } else {
             skip_bytes(input, chunk_size);
@@ -83,7 +82,7 @@ WavData read_wav_f32(const std::filesystem::path & path) {
     }
 
     if (channels == 0 || sample_rate == 0 || bits_per_sample == 0 || data.empty()) {
-        throw std::runtime_error("incomplete WAV file: " + path.string());
+        throw std::runtime_error("incomplete WAV file");
     }
 
     WavData wav;
@@ -102,7 +101,7 @@ WavData read_wav_f32(const std::filesystem::path & path) {
 
     if (audio_format == 1 && bits_per_sample == 24) {
         if (data.size() % 3 != 0) {
-            throw std::runtime_error("malformed PCM24 WAV data chunk: " + path.string());
+            throw std::runtime_error("malformed PCM24 WAV data chunk");
         }
         const size_t sample_count = data.size() / 3;
         wav.samples.resize(sample_count);
@@ -131,7 +130,16 @@ WavData read_wav_f32(const std::filesystem::path & path) {
         return wav;
     }
 
-    throw std::runtime_error("unsupported WAV encoding in " + path.string() + " (need PCM16, PCM24, or float32)");
+    throw std::runtime_error("unsupported WAV encoding (need PCM16, PCM24, or float32)");
+}
+
+WavData read_wav_f32(const std::filesystem::path & path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) {
+        throw std::runtime_error("could not open WAV input: " + path.string());
+    }
+
+    return read_wav_f32(input);
 }
 
 }  // namespace engine::audio
