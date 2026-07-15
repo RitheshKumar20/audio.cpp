@@ -485,7 +485,7 @@ const engine::runtime::AudioBuffer & select_audio_output(const engine::runtime::
 engine::runtime::TaskRequest build_openai_transcription_request(
     const Value & body,
     const std::filesystem::path & base_dir,
-    const std::string * uploaded_audio = nullptr) {
+    const std::string * uploaded_audio_bytes = nullptr) {
     const auto * audio = body.find("audio");
     if (audio == nullptr) {
         audio = body.find("audio_path");
@@ -493,15 +493,15 @@ engine::runtime::TaskRequest build_openai_transcription_request(
     if (audio == nullptr) {
         audio = body.find("file");
     }
-    if (uploaded_audio == nullptr && (audio == nullptr || !audio->is_string())) {
+    if (uploaded_audio_bytes == nullptr && (audio == nullptr || !audio->is_string())) {
         throw std::runtime_error("transcription request requires audio, audio_path, or file path");
     }
 
     engine::runtime::TaskRequest request;
-    if (uploaded_audio == nullptr) {
+    if (uploaded_audio_bytes == nullptr) {
         request.audio_input = minitts::cli::read_audio_buffer(resolve_path(base_dir, audio->as_string()));
     } else {
-        request.audio_input = minitts::cli::read_audio_buffer(std::string_view(*uploaded_audio));
+        request.audio_input = minitts::cli::read_audio_buffer(std::string_view(*uploaded_audio_bytes));
     }
     request.options = options_from_object(body.find("options"));
     std::string language;

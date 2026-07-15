@@ -10,9 +10,10 @@
 namespace engine::audio {
 namespace {
 
-class MemoryStreamBuffer : public std::streambuf {
+class ReadOnlyMemoryStreamBuffer final : public std::streambuf {
 public:
-    explicit MemoryStreamBuffer(std::string_view data) {
+    explicit ReadOnlyMemoryStreamBuffer(std::string_view data) {
+        // std::streambuf::setg takes char*, but this input stream only reads from the buffer.
         auto * begin = const_cast<char *>(data.data());
         setg(begin, begin, begin + data.size());
     }
@@ -171,7 +172,7 @@ WavData read_wav_f32(std::istream & input) {
 }
 
 WavData read_wav_f32(std::string_view input) {
-    MemoryStreamBuffer buffer(input);
+    ReadOnlyMemoryStreamBuffer buffer(input);
     std::istream stream(&buffer);
     return read_wav_f32(stream);
 }
