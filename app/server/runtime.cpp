@@ -1077,13 +1077,21 @@ HttpResponse ServerState::handle_voices(const HttpRequest & request) const {
     const std::string model_id = query_param(request.query, "model");
     std::vector<std::string> voices;
 
-    const auto it = model_index_.find(model_id);
-    if (it != model_index_.end()) {
-        for (const auto & [name, preset] : models_.at(it->second)->voice_presets) {
+    size_t model_idx = SIZE_MAX;
+    if (!model_id.empty()) {
+        const auto it = model_index_.find(model_id);
+        if (it != model_index_.end()) {
+            model_idx = it->second;
+        }
+    } else if (models_.size() == 1) {
+        model_idx = 0;
+    }
+    if (model_idx != SIZE_MAX) {
+        for (const auto & [name, preset] : models_.at(model_idx)->voice_presets) {
             (void) preset;
             voices.push_back(name);
         }
-        const auto embeddings_dir = models_.at(it->second)->config.path / "embeddings";
+        const auto embeddings_dir = models_.at(model_idx)->config.path / "embeddings";
         std::error_code ec;
         if (std::filesystem::is_directory(embeddings_dir, ec)) {
             for (const auto & entry : std::filesystem::directory_iterator(embeddings_dir, ec)) {
