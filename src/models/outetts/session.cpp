@@ -275,7 +275,7 @@ make_voice_profile(OuteTTSDacDecoder::EncodedReference encoded,
   if (frame_count == 0)
     throw std::runtime_error(
         "OuteTTS DAC encoder produced no reference codec frames");
-  if (alignment != nullptr && alignment->words.size() != words.size()) {
+  if (alignment != nullptr) {
     words.clear();
     for (const auto &word : alignment->words)
       words.push_back(word.word);

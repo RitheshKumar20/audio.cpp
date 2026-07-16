@@ -25,6 +25,17 @@ bool is_punctuation(char value) {
          value == ':' || value == ';';
 }
 
+std::string trim_text(const std::string &input) {
+  const auto first = std::find_if_not(
+      input.begin(), input.end(),
+      [](unsigned char value) { return std::isspace(value); });
+  const auto last = std::find_if_not(
+      input.rbegin(), input.rend(),
+      [](unsigned char value) { return std::isspace(value); })
+                        .base();
+  return first < last ? std::string(first, last) : std::string{};
+}
+
 std::string normalize_text(const std::string &input) {
   std::string text;
   text.reserve(input.size());
@@ -77,9 +88,9 @@ std::string profile_codes(const OuteTTSVoiceProfile &profile,
   std::ostringstream out;
   for (size_t word_index = 0; word_index < profile.words.size(); ++word_index) {
     const auto &word = profile.words[word_index];
-    std::string word_text = normalize_text(word.text);
+    std::string word_text = trim_text(word.text);
     if (word_index + 1 == profile.words.size())
-      word_text += normalize_text(separator);
+      word_text += trim_text(separator);
     out << "<|word_start|>" << word_text << "<|features|><|t_" << std::fixed
         << std::setprecision(2) << word.duration << "|>"
         << "<|energy_" << word.features.energy << "|>"
@@ -152,14 +163,13 @@ std::vector<int32_t>
 OuteTTSTokenizer::build_clone_prompt(const std::string &text,
                                      const OuteTTSVoiceProfile &profile) const {
   const std::string prompt_text = normalize_text(text);
-  const std::string reference_text = normalize_text(profile.text);
+  const std::string reference_text = trim_text(profile.text);
   if (prompt_text.empty() || reference_text.empty() || profile.words.empty()) {
     throw std::runtime_error("OuteTTS voice cloning requires text, "
                              "reference_text, and reference codec frames");
   }
   const std::string separator = speaker_separator(reference_text);
-  const std::string merged =
-      normalize_text(reference_text + separator + prompt_text);
+  const std::string merged = reference_text + separator + prompt_text;
   const std::string prompt = "<|im_start|>\n<|text_start|>" + merged +
                              "<|text_end|>\n<|audio_start|>\n" +
                              profile_codes(profile, separator) +

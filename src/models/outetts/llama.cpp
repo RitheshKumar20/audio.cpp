@@ -6,6 +6,7 @@
 #include "engine/framework/modules/attention/qwen_causal_decoder.h"
 #include "engine/framework/modules/lookup_modules.h"
 #include "engine/framework/modules/weight_binding.h"
+#include "engine/framework/sampling/torch_random.h"
 #include "../common/constant_tensor_cache.h"
 
 #include <ggml-alloc.h>
@@ -201,7 +202,12 @@ void apply_repetition_penalty(
     }
 }
 
-int32_t sample_token(std::vector<float> logits, const OuteTTSGenerateOptions & o, std::mt19937 & rng) {
+int32_t sample_token(
+    std::vector<float> logits,
+    const OuteTTSGenerateOptions & o,
+    std::mt19937 & rng,
+    const sampling::TorchCudaSamplingPolicy & sampling_policy,
+    uint64_t call_index) {
     if (!(o.temperature > 0.0F) || !std::isfinite(o.temperature)) {
         return static_cast<int32_t>(std::max_element(logits.begin(), logits.end()) - logits.begin());
     }
@@ -236,6 +242,32 @@ int32_t sample_token(std::vector<float> logits, const OuteTTSGenerateOptions & o
     }
     order.resize(std::max<size_t>(1, kept));
     probabilities.resize(order.size());
+    if (sampling_policy.cuda_fast_path) {
+        double best_rank = -std::numeric_limits<double>::infinity();
+        int32_t best_token = -1;
+        for (size_t index = 0; index < order.size(); ++index) {
+            const float exponential =
+                sampling::torch_cuda_tensor_iterator_exponential_element(
+                    o.seed,
+                    static_cast<uint64_t>(logits.size()),
+                    static_cast<uint64_t>(order[index]),
+                    call_index,
+                    sampling_policy.multiprocessor_count,
+                    sampling_policy.max_threads_per_multiprocessor);
+            const double rank =
+                static_cast<double>(probabilities[index]) /
+                static_cast<double>(exponential);
+            if (rank > best_rank) {
+                best_rank = rank;
+                best_token = static_cast<int32_t>(order[index]);
+            }
+        }
+        if (best_token < 0) {
+            throw std::runtime_error(
+                "OuteTTS CUDA sampler failed to select a token");
+        }
+        return best_token;
+    }
     std::discrete_distribution<int> distribution(probabilities.begin(), probabilities.end());
     return static_cast<int32_t>(order[static_cast<size_t>(distribution(rng))]);
 }
@@ -335,7 +367,17 @@ struct OuteTTSLlamaRuntime::Impl {
         size_t weight_context_bytes,
         size_t constant_context_bytes,
         assets::TensorStorageType storage_type)
-        : assets(std::move(assets_in)), threads(std::max(1, threads_in)) {
+        : assets(std::move(assets_in)),
+          threads(std::max(1, threads_in)),
+          sampling_policy(
+              backend_type == core::BackendType::Cuda
+                  ? sampling::resolve_torch_cuda_sampling_policy(
+                        backend_type,
+                        device,
+                        "outetts",
+                        "OuteTTS",
+                        sampling::TorchCudaSamplingPolicyFailureMode::StrictCuda)
+                  : sampling::TorchCudaSamplingPolicy{}) {
         if (assets == nullptr) {
             throw std::runtime_error("OuteTTS Llama runtime requires assets");
         }
@@ -492,6 +534,7 @@ struct OuteTTSLlamaRuntime::Impl {
     std::shared_ptr<const OuteTTSAssets> assets;
     ggml_backend_t backend = nullptr;
     int threads = 1;
+    sampling::TorchCudaSamplingPolicy sampling_policy;
     ModelWeights weights;
     std::unique_ptr<common::ConstantTensorCache> constants;
     std::unique_ptr<CachedStepGraph> step_graph;
@@ -551,7 +594,8 @@ std::vector<int32_t> OuteTTSLlamaRuntime::generate(
         apply_repetition_penalty(
             logits, all, options.repetition_window, options.repetition_penalty);
         const int32_t token = sample_token(
-            std::move(logits), sampling_options, rng);
+            std::move(logits), sampling_options, rng,
+            impl_->sampling_policy, static_cast<uint64_t>(i));
         sample_ms += debug::elapsed_ms(sample_start);
         generated.push_back(token);
         if (token == eos_id || token == audio_end_id) {

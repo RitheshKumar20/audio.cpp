@@ -39,12 +39,18 @@ build\reference\venv\Scripts\python.exe -m pip install transformers==4.52.3 llam
 ```
 
 The reference loaded `models/Llama-OuteTTS-1.0-1B` through
-`outetts.Backend.HF` with BF16 CUDA weights and loaded the official IBM DAC
+`outetts.Backend.HF` with FP32 CUDA weights and loaded the official IBM DAC
 checkpoint from
 `models/DAC.speech.v1.0/weights_24khz_1.5kbps_v1.0.pth`. Both implementations
 used temperature `0.4`, repetition penalty `1.1` over the latest 64 tokens,
 top-k `40`, top-p `0.9`, min-p `0.05`, the request-file seeds, and the same
 maximum number of new tokens.
+
+Temperature zero was deliberately not used. OuteTTS 1.0's official
+`generation_config.json`, README example, and Python API all select sampled
+generation with temperature `0.4`; changing to greedy generation would test a
+different inference contract. OuteTTS has no diffusion or latent-noise input.
+Its only request-time randomness is language-model token sampling.
 
 For a controlled clone comparison, Qwen word timings were generated once and
 passed to the official Python `AudioProcessor.create_speaker_from_dict` path:
@@ -60,9 +66,26 @@ build\windows-cuda-release\bin\audiocpp_cli.exe `
 
 Python still performed the official DAC encoding and feature extraction. This
 keeps different alignment algorithms from contaminating the TTS comparison.
-The Python reference-profile build took 934.118 ms and is charged to
-`clone_cold` below. The audio.cpp cold-clone timing also includes its Qwen
-alignment, while the Python number starts from the supplied word timings.
+The audio.cpp cold-clone timing includes its Qwen alignment, while the Python
+number starts from the supplied word timings.
+
+Run the committed official-reference driver after creating the alignment JSON:
+
+```powershell
+build\reference\venv\Scripts\python.exe `
+  tools\audiocpp_cli\outetts_reference.py `
+  --model ..\models\Llama-OuteTTS-1.0-1B `
+  --dac ..\models\DAC.speech.v1.0\weights_24khz_1.5kbps_v1.0.pth `
+  --alignment-json build\reference\b_words.json `
+  --request-file tests\outetts\warm_bench_requests.json `
+  --device cuda --dtype fp32 `
+  --out-dir build\reference\official_script_fp32
+```
+
+The driver resets both `torch.manual_seed` and
+`torch.cuda.manual_seed_all` immediately before every `model.generate` call,
+after all prompt, alignment, and DAC-profile work. It writes native 24 kHz
+WAVs plus `boundaries.json`, `memory.json`, `stdout.log`, and `command.json`.
 
 ## Exact build commands
 
@@ -192,9 +215,10 @@ build\windows-cuda-release\bin\outetts_warm_bench.exe `
   --model ..\models\Llama-OuteTTS-1.0-1B `
   --backend cuda --threads 8 `
   --request-file tests\outetts\warm_bench_requests.json `
+  --session-option outetts.weight_type=f32 `
   --session-option outetts.aligner_model_path=..\models\Qwen3-ForcedAligner-0.6B `
-  --audio-out-dir build\reference\cpp_safetensors `
-  --log-file build\reference\cpp_safetensors.log
+  --audio-out-dir build\reference\cpp_f32_final_explicit `
+  --log-file build\reference\cpp_f32_final_explicit.log
 ```
 
 The memory-saver trace reports a positive
@@ -232,12 +256,12 @@ The exact generated directories and logs were:
 - `build\logs\warmbench\outetts-cuda-default.log`
 - `build\logs\warmbench\outetts-cuda-mem_saver.log`
 - `build\logs\warmbench\outetts-cpu-default-final.log`
-- `build\logs\warmbench\outetts-ab\default-{1,2,3}-audio`
-- `build\logs\warmbench\outetts-ab\mem_saver-{1,2,3}-audio`
-- `build\reference\cpp_safetensors`
-- `build\reference\python_outputs` (official 44.1 kHz wrapper output)
-- `build\reference\python_outputs_24k` (metric input resampled to DAC-native
-  24 kHz)
+- `build\logs\warmbench\outetts-ab-torch-sampler\default-{1,2,3}-audio`
+- `build\logs\warmbench\outetts-ab-torch-sampler\mem_saver-{1,2,3}-audio`
+- `build\reference\cpp_f32_final_explicit`
+- `build\reference\cpp_q8_torch_sampler`
+- `build\reference\official_script_fp32\outputs`
+- `build\reference\official_script_fp32\boundaries.json`
 
 These validation artifacts are reproducible local outputs and are not committed
 to the repository.
@@ -250,32 +274,34 @@ processes in alternating order. Values below are mean +/- sample standard
 deviation. The Python HF and audio.cpp safetensors columns are single loaded-
 session runs; model load is excluded from every per-request measurement.
 
-| Request | Python HF wall / RTF | C++ safetensors wall / RTF | C++ Q8 wall / RTF |
+| Request | Python HF FP32 wall / RTF | C++ FP32 wall / RTF | C++ Q8 wall / RTF |
 |---|---:|---:|---:|
-| `tts_cold` | 4144.65 ms / 3.141 | 3499.28 ms / 2.652 | 3207.55 +/- 20.46 ms / 2.431 |
-| `tts_repeat` | 4068.42 ms / 3.083 | 3267.68 ms / 2.476 | 3026.10 +/- 6.42 ms / 2.293 |
-| `tts_longform` | 16176.37 ms / 2.882 | 13169.50 ms / 2.347 | 12999.03 +/- 94.52 ms / 2.316 |
-| `clone_cold` | 5078.82 ms / 3.342 | 5764.60 ms / 3.793 | 6429.54 +/- 37.51 ms / 4.053 |
-| `clone_repeat` | 4149.47 ms / 2.730 | 3615.41 ms / 2.379 | 4233.98 +/- 14.79 ms / 2.669 |
+| `tts_cold` | 4599.12 ms / 3.485 | 5366.24 ms / 4.066 | 3211.84 +/- 17.30 ms / 2.434 |
+| `tts_repeat` | 3777.69 ms / 2.863 | 3864.98 ms / 2.929 | 3030.79 +/- 18.60 ms / 2.297 |
+| `tts_longform` | 15129.91 ms / 2.690 | 15547.80 ms / 2.764 | 13015.83 +/- 171.29 ms / 2.342 |
+| `clone_cold` | 5762.51 ms / 3.792 | 5988.01 ms / 3.940 | 6432.68 +/- 65.11 ms / 4.233 |
+| `clone_repeat` | 5522.67 ms / 3.634 | 4231.19 ms / 2.784 | 4220.23 +/- 44.07 ms / 2.777 |
 
-`clone_cold` includes the 934.118 ms official-Python reference-profile build as
-described above. Generated durations are used independently for each RTF:
-Python and C++ safetensors cloning produced 1.51968 seconds, while Q8 produced
-1.58633 seconds.
+These are per-request timings from a single loaded session; model loading is
+excluded. Python and C++ FP32 generated 1.31967, 1.31967, 5.62533, 1.51967,
+and 1.51967 seconds respectively. Q8 generated 5.55867 seconds for the
+long-form request and matched the other four durations.
 
 The memory-saver A/B is also reported per request rather than inferred from a
 single aggregate run:
 
 | Request | Default CUDA Q8 | Memory saver CUDA Q8 | Wall delta | Default RTF | Memory-saver RTF |
 |---|---:|---:|---:|---:|---:|
-| `tts_cold` | 3207.55 +/- 20.46 ms | 3228.32 +/- 21.36 ms | +0.65% | 2.431 | 2.446 |
-| `tts_repeat` | 3026.10 +/- 6.42 ms | 3047.81 +/- 25.96 ms | +0.72% | 2.293 | 2.310 |
-| `tts_longform` | 12999.03 +/- 94.52 ms | 13138.60 +/- 113.97 ms | +1.07% | 2.316 | 2.341 |
-| `clone_cold` | 6429.54 +/- 37.51 ms | 6506.54 +/- 51.57 ms | +1.20% | 4.053 | 4.102 |
-| `clone_repeat` | 4233.98 +/- 14.79 ms | 4272.15 +/- 20.66 ms | +0.90% | 2.669 | 2.693 |
+| `tts_cold` | 3211.84 +/- 17.30 ms | 3223.24 +/- 12.89 ms | +0.35% | 2.434 | 2.443 |
+| `tts_repeat` | 3030.79 +/- 18.60 ms | 3044.58 +/- 18.76 ms | +0.45% | 2.297 | 2.307 |
+| `tts_longform` | 13015.83 +/- 171.29 ms | 13070.17 +/- 105.32 ms | +0.42% | 2.342 | 2.351 |
+| `clone_cold` | 6432.68 +/- 65.11 ms | 6467.00 +/- 46.38 ms | +0.53% | 4.233 | 4.256 |
+| `clone_repeat` | 4220.23 +/- 44.07 ms | 4238.27 +/- 17.07 ms | +0.43% | 2.777 | 2.789 |
 
-Memory saver was slower on every request in this controlled repeat: about 0.6%
-to 1.2%, and 0.99% over the mean five-request wall total. It remains useful
+Memory saver was slightly slower on every request in this controlled repeat:
+0.35% to 0.53%, and 0.44% over the mean five-request wall total. These small
+differences are near normal run-to-run variance, so there is no evidence that
+memory saver is a speed optimization. It remains useful
 because the independently sampled peak VRAM fell from 17653 MiB to 5780 MiB
 (67.3%) with the same 294 MiB post-session resident VRAM. It is therefore a
 memory-versus-speed option, not a speed optimization.
@@ -303,9 +329,9 @@ cached reference took 0.29 ms.
 - The standalone path test loaded the one-file GGUF from outside the worktree;
   no adjacent sidecars or `model_specs` directory were present.
 - Within CUDA, cold and repeated TTS were byte-identical with SHA-256
-  `52A11609B165314E8F83919CD4F82AD899346B9945DBEA9D9676431F4E67C548`.
+  `9D1AF0D25212129B3C26880F7C928CFFA813A4B9EF22F12F390A4C372D51D406`.
 - Within CUDA, cold and repeated cloning were byte-identical with SHA-256
-  `8816F29514944C7B8121D17E7620D095D06BA636247BFD4358793500FE8B6FA1`.
+  `EB7E6B5A1330F845F45D3DA21C8AC28490572F95218A6F0D3DA2A83CB797EFE6`.
 - The CUDA default and memory-saver outputs had the same hashes.
 - Within CPU, cold and repeated TTS were byte-identical with SHA-256
   `A315C0AD425C99910597FCC4BAB9D80CB5F4C893176EBD9099BA6C6AA7B66BFD`.
@@ -318,25 +344,56 @@ cached reference took 0.29 ms.
 Python parity uses the repository's
 `tools/audiocpp_cli/compare_audiocpp_cli_path_results.py` implementation: PCM
 WAV cosine plus an 80-band `log1p` mel-spectrogram cosine (`n_fft=1024`,
-`hop=256`). The official Python `ModelOutput` upsamples native DAC audio to
-44.1 kHz; it was resampled back to the DAC/audio.cpp native 24 kHz before the
-metric was applied. Files were truncated to their common frame count, matching
-the repository comparison helper.
+`hop=256`). Both sides write the DAC-native 24 kHz signal directly. Raw WAV
+cosine is highly phase-sensitive; log-mel cosine is the more informative value
+when the DAC encoders are numerically close but not bit-identical.
 
-| Request | Safetensors WAV cosine | Safetensors log-mel cosine | Q8 WAV cosine | Q8 log-mel cosine |
+The CUDA sampler now uses the framework's PyTorch-compatible exponential-race
+random stream, equivalent to the `torch.multinomial` path used by Transformers.
+Temporary trace-level instrumentation compared prompt strings, prompt token
+IDs, generated token IDs, codec codes, and WAV frame counts at component
+boundaries. It was removed after validation to avoid normal-log spam. The
+permanent Python driver records the Python side in `boundaries.json`.
+
+Boundary results under the controlled FP32 run:
+
+| Request | Chunks | Python/C++ prompt IDs | Generated IDs per chunk | Python/C++ frames |
 |---|---:|---:|---:|---:|
-| `tts_cold` | 0.037707 | 0.525263 | 0.038120 | 0.658969 |
-| `tts_repeat` | 0.037707 | 0.525263 | 0.038120 | 0.658969 |
-| `tts_longform` | 0.011433 | 0.589421 | 0.001456 | 0.688418 |
-| `clone_cold` | -0.028749 | 0.766325 | 0.016037 | 0.367275 |
-| `clone_repeat` | -0.028749 | 0.766325 | 0.016037 | 0.367275 |
+| `tts_cold` | 1 | 22 / 22 | 256 | 31672 / 31672 |
+| `tts_repeat` | 1 | 22 / 22 | 256 | 31672 / 31672 |
+| `tts_longform` | 4 | 20,22,14,21 / same | 256 each | 135008 / 135008 |
+| `clone_cold` | 1 | 2367 / 2367 | 256 | 36472 / 36472 |
+| `clone_repeat` | 1 | 2367 / 2367 | 256 | 36472 / 36472 |
 
-These are free-running sampled autoregressive outputs. The same seed does not
-produce the same random stream across PyTorch and ggml, so the metric measures
-rendered-audio similarity rather than sample identity. Raw WAV cosine is highly
-phase-sensitive; log-mel cosine is the more informative parity value here.
-Quantization can also change the sampled token path, so a higher value in one
-row should not be interpreted as a general perceptual-quality ranking.
+The sampled prompt/generated boundary values for all six ordinary-TTS chunks
+had zero mismatches. Clone prompt construction also matches the official word
+labels and token count. The C++ DAC reference encoder still differs slightly
+from Python: among 1046 reference-profile frames, C1 differs on 48 and C2 on
+118. That numerical boundary explains why cloning is not waveform-identical.
+
+Primary native/FP32 parity, measured only after the controlled random stream
+and frame counts matched:
+
+| Request | WAV cosine | Log-mel cosine | C++ / Python frames |
+|---|---:|---:|---:|
+| `tts_cold` | 0.999812247 | 0.999997481 | 31672 / 31672 |
+| `tts_repeat` | 0.999812238 | 0.999997483 | 31672 / 31672 |
+| `tts_longform` | 0.997324530 | 0.999294328 | 135008 / 135008 |
+| `clone_cold` | -0.007753064 | 0.889403845 | 36472 / 36472 |
+| `clone_repeat` | -0.007753064 | 0.889403845 | 36472 / 36472 |
+
+Only after that path was clean was the packed Q8 model compared with the same
+FP32 Python reference. Quantization is expected to perturb autoregressive
+sampling, so this is a secondary characterization rather than the correctness
+gate:
+
+| Request | WAV cosine | Log-mel cosine | C++ Q8 / Python frames |
+|---|---:|---:|---:|
+| `tts_cold` | -0.016326171 | 0.696795792 | 31672 / 31672 |
+| `tts_repeat` | -0.016326591 | 0.696792751 | 31672 / 31672 |
+| `tts_longform` | 0.577927575 | 0.920741352 | 133408 / 135008 |
+| `clone_cold` | -0.033990775 | 0.882715855 | 36472 / 36472 |
+| `clone_repeat` | -0.033990775 | 0.882715855 | 36472 / 36472 |
 
 ## Backend coverage
 
@@ -362,6 +419,9 @@ row should not be interpreted as a general perceptual-quality ranking.
   applies to each chunk.
 - CPU and CUDA outputs are deterministic within each tested backend but are not
   expected to be byte-identical across backends.
-- Python/C++ sampling uses different random-number implementations; fixed seeds
-  are deterministic within each runtime but do not imply identical token paths
-  between runtimes.
+- The controlled CUDA sampling stream is PyTorch-compatible. CPU sampling is
+  deterministic for a fixed seed but still uses the C++ standard-library
+  distribution and is not claimed to reproduce PyTorch token-for-token.
+- Quantized weights can change sampled tokens and output length even when the
+  seed and sampler implementation match, as shown by the Q8 long-form frame
+  drift above.
