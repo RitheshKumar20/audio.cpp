@@ -1628,6 +1628,7 @@ public:
             !talker_prefill_equal(*cached_prompt_prefill_, request)) {
             cached_prompt_state_ = build_prompt_state(request, weights_->assets().config, weights_->weights());
             cached_prompt_prefill_ = request;
+            cached_prefill_output_.reset();
         }
         const auto & state = *cached_prompt_state_;
         const auto prompt_state_end = Clock::now();
@@ -1637,9 +1638,13 @@ public:
             throw std::runtime_error("Qwen3 talker prompt exceeds step runtime capacity");
         }
         const auto prefill_start = Clock::now();
-        auto prefill_output = run_prefill_embeddings_with_state(state.prompt, prompt_steps);
+        const bool prefill_cache_hit = cached_prefill_output_.has_value();
+        if (!prefill_cache_hit) {
+            cached_prefill_output_ = run_prefill_embeddings_with_state(state.prompt, prompt_steps);
+        }
+        const auto & prefill_output = *cached_prefill_output_;
         const auto prefill_end = Clock::now();
-        auto current = std::move(prefill_output.result);
+        auto current = prefill_output.result;
         double code_predictor_build_ms = 0.0;
         if (code_predictor_graph_ == nullptr) {
             const auto build_start = Clock::now();
@@ -1649,12 +1654,14 @@ public:
         double cached_step_build_ms = 0.0;
         double import_prefill_state_ms = 0.0;
         int64_t cached_step_capacity = 0;
-        auto cached_state = std::move(prefill_output.state);
+        runtime::TransformerKVState exported_cached_state;
+        const runtime::TransformerKVState * cached_state = &prefill_output.state;
         bool cached_graph_has_state = false;
         auto ensure_cached_step_capacity = [&](int64_t required_capacity) {
             if (cached_step_graph_ != nullptr && cached_graph_has_state &&
                 !cached_step_graph_->can_run(*weights_, required_capacity)) {
-                cached_state = cached_step_graph_->export_state();
+                exported_cached_state = cached_step_graph_->export_state();
+                cached_state = &exported_cached_state;
                 cached_graph_has_state = false;
             }
             if (cached_step_graph_ == nullptr || !cached_step_graph_->can_run(*weights_, required_capacity)) {
@@ -1676,7 +1683,7 @@ public:
             }
             if (!cached_graph_has_state) {
                 const auto import_start = Clock::now();
-                cached_step_graph_->import_prefill_state(cached_state);
+                cached_step_graph_->import_prefill_state(*cached_state);
                 import_prefill_state_ms += engine::debug::elapsed_ms(import_start, Clock::now());
                 cached_graph_has_state = true;
             }
@@ -1761,6 +1768,7 @@ public:
         out.decoder_input_codes.frames += out.generated_codes.frames;
         debug::timing_log_scalar("qwen3_tts.talker.prompt_state_ms", engine::debug::elapsed_ms(prompt_state_start, prompt_state_end));
         debug::timing_log_scalar("qwen3_tts.talker.prefill_ms", engine::debug::elapsed_ms(prefill_start, prefill_end));
+        debug::timing_log_scalar("qwen3_tts.talker.prefill_cache.hit", prefill_cache_hit);
         debug::timing_log_scalar("qwen3_tts.talker.code_predictor_build_ms", code_predictor_build_ms);
         debug::timing_log_scalar("qwen3_tts.talker.cached_step_build_ms", cached_step_build_ms);
         debug::timing_log_scalar("qwen3_tts.talker.import_prefill_state_ms", import_prefill_state_ms);
@@ -1813,6 +1821,7 @@ private:
     std::unique_ptr<CodePredictorGraph> code_predictor_graph_;
     std::optional<Qwen3TalkerPrefill> cached_prompt_prefill_;
     std::optional<PromptEmbeddingState> cached_prompt_state_;
+    std::optional<TalkerPrefillGraph::OutputWithCache> cached_prefill_output_;
 };
 
 Qwen3TalkerStepRuntime::Qwen3TalkerStepRuntime(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {
