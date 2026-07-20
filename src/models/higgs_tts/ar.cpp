@@ -450,11 +450,14 @@ struct HiggsARKVCache::Impl {
                 GGML_TYPE_F16,
                 core::TensorShape::from_dims({1, cache_steps, config.text.num_key_value_heads, dim})));
         }
+        runtime::TransformerKVCacheOptions cache_options;
+        cache_options.allow_f16_storage = true;
         cache = runtime::TransformerKVCache(
             cache_steps,
             config.text.num_key_value_heads * dim,
             std::move(key_tensors),
-            std::move(value_tensors));
+            std::move(value_tensors),
+            cache_options);
         buffer = ggml_backend_alloc_ctx_tensors(ctx.get(), runtime->backend());
         if (buffer == nullptr) {
             throw std::runtime_error("failed to allocate Higgs TTS AR KV cache");
