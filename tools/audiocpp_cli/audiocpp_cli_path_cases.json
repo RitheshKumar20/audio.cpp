@@ -612,6 +612,53 @@
       ]
     },
     {
+      "id": "fish_audio_s2_pro_paths",
+      "coverage": "Fish Audio S2-Pro path coverage for default voice, reference voice clone, inline control tag, AR generation, and codec decode in one offline session",
+      "family": "fish_audio",
+      "model": "models/s2-pro",
+      "task": "tts",
+      "mode": "offline",
+      "session_options": {
+        "fish_audio.weight_type": "native",
+        "fish_audio.codec_weight_type": "native",
+        "fish_audio.reference_cache_slots": "1"
+      },
+      "outputs": [
+        "audio"
+      ],
+      "requests": [
+        {
+          "id": "official_auto_voice_english",
+          "text": "The field recorder captured a clean reference take, and the operator confirmed that every timestamp matched the written production notes.",
+          "chunk_length": 200,
+          "top_p": 0.8,
+          "repetition_penalty": 1.1,
+          "temperature": 0.8,
+          "seed": 1234
+        },
+        {
+          "id": "official_reference_voice_clone",
+          "text": "The studio engineer checked the short voice prompt, confirmed the take was clear, and started the final render.",
+          "voice_ref": "resources/sample.wav",
+          "reference_text": "Some call me nature. Others call me Mother Nature. I've been here for over 4.5 billion years. 22,500 times longer than you.",
+          "chunk_length": 200,
+          "top_p": 0.8,
+          "repetition_penalty": 1.1,
+          "temperature": 0.8,
+          "seed": 2234
+        },
+        {
+          "id": "official_inline_control_tag",
+          "text": "[whisper in small voice] The prototype actually worked after the last reset, and the control room stayed quiet until every green light appeared.",
+          "chunk_length": 200,
+          "top_p": 0.8,
+          "repetition_penalty": 1.1,
+          "temperature": 0.8,
+          "seed": 3234
+        }
+      ]
+    },
+    {
       "id": "heartmula_music_generation",
       "coverage": "HeartMuLa text-to-music generation using native model weight types and the warmbench reference request",
       "family": "heartmula",

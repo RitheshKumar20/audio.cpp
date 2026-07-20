@@ -11,6 +11,7 @@
 #include "engine/models/chatterbox/loader.h"
 #include "engine/models/citrinet_asr/session.h"
 #include "engine/models/demucs/loader.h"
+#include "engine/models/fish_audio/loader.h"
 #include "engine/models/heartmula/loader.h"
 #include "engine/models/higgs_audio_stt/loader.h"
 #include "engine/models/higgs_tts/loader.h"
@@ -257,6 +258,7 @@ ModelRegistry make_default_registry(const std::optional<std::filesystem::path> &
         engine::models::vibevoice::make_vibevoice_loader(),
         engine::models::vibevoice_asr::make_vibevoice_asr_loader(),
         engine::models::voxtral_realtime::make_voxtral_realtime_loader(),
+        engine::models::fish_audio::make_fish_audio_loader(),
         engine::models::heartmula::make_heartmula_loader(),
         engine::models::higgs_audio_stt::make_higgs_audio_stt_loader(),
         engine::models::higgs_tts::make_higgs_tts_loader(),

@@ -348,6 +348,14 @@ add_library(engine_runtime STATIC
     src/models/voxtral_realtime/text_decoder.cpp
     src/models/voxtral_realtime/session.cpp
     src/models/voxtral_realtime/loader.cpp
+    src/models/fish_audio/ar.cpp
+    src/models/fish_audio/assets.cpp
+    src/models/fish_audio/codec.cpp
+    src/models/fish_audio/generator.cpp
+    src/models/fish_audio/loader.cpp
+    src/models/fish_audio/prompt_builder.cpp
+    src/models/fish_audio/session.cpp
+    src/models/fish_audio/tokenizer_text.cpp
     src/models/heartmula/assets.cpp
     src/models/heartmula/codec.cpp
     src/models/heartmula/generator.cpp

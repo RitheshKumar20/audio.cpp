@@ -56,7 +56,6 @@ modules::QwenDecoderStackConfig make_higgs_qwen_stack_config(const HiggsTextConf
     out.runtime.attention.prefill_mode = modules::QwenDecoderAttentionMode::FlashGroupedViewKV;
     out.runtime.attention.static_mode = modules::QwenDecoderAttentionMode::FlashGroupedViewKV;
     out.runtime.static_cache.update_mode = modules::QwenDecoderStaticCacheUpdateMode::DirectSetRows;
-    out.runtime.static_cache.transpose_context = false;
     return out;
 }
 
