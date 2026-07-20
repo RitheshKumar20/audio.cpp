@@ -36,6 +36,8 @@ audio.cpp would not be moving this quickly without generous contributors bringin
 ## News
 
 > [!IMPORTANT]
+> **2026-07-18 - Voxtral Realtime ASR:** Voxtral is now released in audio.cpp with offline and streaming ASR paths. On warmed normal requests, BF16 GGUF runs at **RTF 0.089** (**11.2x realtime**) and Q8_0 at **RTF 0.064** (**15.7x realtime**); CUDA streaming TTFT is about **209 ms** with BF16 and **171 ms** with Q8_0.
+>
 > **2026-07-14 - Release 0.3:** This release expands audio.cpp with five new TTS families: IndexTTS2, Irodori-TTS, MOSS-TTS-Nano, MOSS-TTS-Local (thanks to [@justinjohn0306](https://github.com/justinjohn0306)), and Supertonic 3. Chatterbox also gains voice-conversion support, extending the existing TTS/voice-cloning path into a fuller speech workflow.
 >
 > **GGUF support:** audio.cpp now has reusable GGUF loading and conversion support, with tested GGUF paths for multiple ASR and TTS models. Some models can run up to 2× faster with Q8 GGUF, without any parity drift. See [docs/gguf.md](docs/gguf.md) for the current support status. Huge thanks to [@mirek190](https://github.com/mirek190) for driving the core GGUF work and model support forward.
@@ -58,6 +60,7 @@ audio.cpp would not be moving this quickly without generous contributors bringin
 | **miocodec** | audio codec, voice conversion backend | lang agnostic | MioCodec v2, 25 Hz, 44.1 kHz |
 | **miotts** | TTS, voice cloning | en, ja | MioTTS-1.7B |
 | **omnivoice** | TTS, voice cloning, voice design | 646+ langs | OmniVoice, Qwen3-0.6B based |
+| **outetts** | TTS, voice cloning | en, ar, zh, nl, fr, de, it, ja, ko, lt, ru, es, pt, be, bn, ka, hu, lv, fa, pl, sw, ta, uk | Llama-OuteTTS-1.0-1B |
 | **pocket_tts** | TTS, voice cloning | en, de, it, pt, es | PocketTTS-100M |
 | **nemotron_asr** | ASR | 100+ ASR prompt codes incl. auto | Nemotron 3.5 ASR Streaming 0.6B |
 | **qwen3_asr** | ASR | zh, en, yue, ar, de, fr, es, pt, id, it, ko, ru, th, vi, ja, tr, hi, ms, nl, sv, da, fi, pl, cs, fil, fa, el, ro, hu, mk | Qwen3-ASR-0.6B, Qwen3-ASR-1.7B-hf |
@@ -70,6 +73,7 @@ audio.cpp would not be moving this quickly without generous contributors bringin
 | **vevo2** | TTS, singing generation, voice conversion, singing conversion, editing | en, zh | Vevo2 with Qwen2.5-0.5B AR model |
 | **vibevoice** | TTS, multi-speaker dialogue TTS | en, zh | VibeVoice-1.5B, VibeVoice-7B |
 | **vibevoice_asr** | ASR | auto | VibeVoice ASR |
+| **voxtral_realtime** | ASR | auto | Voxtral-Mini-4B-Realtime-2602 |
 | **voxcpm2** | TTS, voice cloning, voice design | ar, da, de, el, en, es, fi, fr, he, hi, id, it, ja, km, ko, lo, ms, my, nl, no, pl, pt, ru, sv, sw, th, tl, tr, vi, zh | VoxCPM2-2B, 48 kHz |
 | **index_tts2** | TTS, voice cloning, expressive speech | zh, en | IndexTTS-2 |
 | **irodori_tts** | TTS, voice cloning, voice design | ja | Irodori-TTS-500M-v3, Irodori-TTS-600M-v3-VoiceDesign |
@@ -77,7 +81,15 @@ audio.cpp would not be moving this quickly without generous contributors bringin
 | **moss_tts_local** | TTS, voice cloning | auto, optional language hint | MOSS-TTS-Local-Transformer-v1.5 |
 | **supertonic** | TTS | en, ko, ja, ar, bg, cs, da, de, el, es, et, fi, fr, hi, hr, hu, id, it, lt, lv, nl, pl, pt, ro, ru, sk, sl, sv, tr, uk, vi, na | Supertonic 3 |
 
-WIP: Higgs Audio v3 TTS 4B, Fish Audio S2 Pro, Voxtral-Mini-4B-Realtime.
+## Community Models
+
+Community model ports live under `community_models` to make the ownership boundary clear while keeping them available through the normal audio.cpp CLI and server paths. Huge thanks to the contributors who bring these models in, test them, and keep pushing the framework into new territory. See [docs/community_models/models.md](docs/community_models/models.md) for community-model expectations and current entries.
+
+| Family | Task | Supported language(s) | Contributor | What They Added |
+|---|---|---|---|---|
+| **outetts** | TTS, voice cloning | en, ar, zh, nl, fr, de, it, ja, ko, lt, ru, es, pt, be, bn, ka, hu, lv, fa, pl, sw, ta, uk | Mirek [@mirek190](https://github.com/mirek190) | Llama-OuteTTS-1.0-1B TTS and voice cloning support |
+
+WIP: Higgs Audio v3 TTS 4B, Fish Audio S2 Pro.
 
 PocketTTS language selection is a model-load option. When the model path points at the PocketTTS root, the loader uses `english` unless you pass `--load-option language=<name>`. Kyutai's normal non-English PocketTTS releases are smaller distilled language models intended for the fast PocketTTS path. The `_24l` variants are larger 24-layer, undistilled preview models that can sound better but are slower. Kyutai currently publishes French only as `french_24l`, not as a normal distilled `french` language directory, so French is not listed as a normal PocketTTS language here.
 
@@ -348,8 +360,12 @@ Dependencies:
 The tool supports three main commands:
 
 - `list` shows the available package ids
+- `list --json` prints a machine-readable package catalog
 - `info` shows the target layout, required files, and install source for one package
+- `info <package> --json` prints machine-readable package details
 - `install` downloads or converts one package into a models root
+
+The CLI also exposes the runtime loader catalog with `audiocpp_cli --list-loaders --json`, including task and endpoint metadata added by [PR #74](https://github.com/0xShug0/audio.cpp/pull/74).
 
 Recommended top-level install packages:
 
@@ -379,6 +395,7 @@ Recommended top-level install packages:
 | `moss_tts_local_v1_5` | MOSS-TTS-Local Transformer v1.5 | No |
 | `nemotron_asr` | Nemotron ASR | **Yes** |
 | `omnivoice` | OmniVoice | **Yes** |
+| `outetts_1_0_1b` | OuteTTS 1.0 1B with IBM DAC codec and Qwen3-aligned voice cloning | No |
 | `parakeet_tdt_0_6b_v3` | Parakeet TDT 0.6B v3 | **Yes** |
 | `pocket_tts` | PocketTTS | **Yes** |
 | `qwen3_asr_0_6b` | Qwen3 ASR 0.6B | **Yes** |
@@ -398,6 +415,7 @@ Recommended top-level install packages:
 | `vibevoice_1_5b` | VibeVoice 1.5B | No |
 | `vibevoice_7b` | VibeVoice 7B | No |
 | `vibevoice_asr` | VibeVoice ASR | No |
+| `voxtral_realtime` | Voxtral Mini 4B Realtime | **Yes** |
 | `voxcpm2` | VoxCPM2 | No |
 
 > [!WARNING]
@@ -631,10 +649,10 @@ The framework also has a reusable GGUF tensor source and a streaming converter. 
 container reader is shared by all model families; a family still has to list a `.gguf`
 checkpoint as one of its accepted assets because model configuration and tensor naming
 remain architecture-specific. Qwen3 ASR, Qwen3 Forced Aligner, Qwen3 TTS, Nemotron
-3.5 ASR, VibeVoice-ASR, Higgs Audio STT, Hviske ASR, and Citrinet ASR currently accept
+3.5 ASR, VibeVoice-ASR, Higgs Audio STT, Hviske ASR, Citrinet ASR, and OuteTTS currently accept
 `model.gguf` (including `speech_tokenizer/model.gguf` for TTS). The converter recursively embeds sidecar files
 up to 64 MiB by default using binary-safe metadata, including nested tokenizer models,
-and Qwen3 ASR, Nemotron ASR, VibeVoice-ASR, Higgs Audio STT, Hviske ASR, and Citrinet ASR
+and Qwen3 ASR, Nemotron ASR, VibeVoice-ASR, Higgs Audio STT, Hviske ASR, Citrinet ASR, and OuteTTS
 can load the resulting `model.gguf` as a standalone file. The converter embeds the selected
 package spec in new GGUF files. Standalone conversion with embedded sidecars is the default
 and fails if required package resources are missing. Pass `--no-sidecars` only to explicitly

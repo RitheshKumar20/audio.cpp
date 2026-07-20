@@ -319,6 +319,16 @@ FAMILY_CONFIG: dict[str, dict[str, Any]] = {
         "default_case_name": "default",
         "default_requests_per_session": 1,
     },
+    "voxtral_realtime": {
+        "kind": "asr",
+        "modes": ["offline", "streaming"],
+        "cpp_bin": "build/debug/bin/voxtral_realtime_warm_bench",
+        "python_script": "tests/voxtral_realtime/voxtral_realtime_python_warm_bench.py",
+        "model": "models/Voxtral-Mini-4B-Realtime-2602",
+        "case_catalog": "tests/voxtral_realtime/voxtral_realtime_warm_bench_cases.json",
+        "default_requests_per_session": 3,
+        "strict_text": True,
+    },
     "qwen3_forced_aligner": {
         "kind": "alignment",
         "modes": ["offline"],
@@ -3602,6 +3612,31 @@ def build_catalog_asr_commands(
             "--keep-language-tags-sequence",
             csv_bools(request_cases, "keep_language_tags", bool(warmup_case.get("keep_language_tags", False))),
         ])
+    elif family == "voxtral_realtime":
+        common.extend([
+            "--streaming",
+            "true" if mode == "streaming" else "false",
+            "--do-sample",
+            "true" if bool(warmup_case.get("do_sample", False)) else "false",
+            "--do-sample-sequence",
+            csv_bools(request_cases, "do_sample", bool(warmup_case.get("do_sample", False))),
+            "--temperature",
+            str(warmup_case.get("temperature", 1.0)),
+            "--temperature-sequence",
+            csv_values(request_cases, "temperature", warmup_case.get("temperature", 1.0)),
+            "--top-p",
+            str(warmup_case.get("top_p", 1.0)),
+            "--top-p-sequence",
+            csv_values(request_cases, "top_p", warmup_case.get("top_p", 1.0)),
+            "--top-k",
+            str(warmup_case.get("top_k", 50)),
+            "--top-k-sequence",
+            csv_values(request_cases, "top_k", warmup_case.get("top_k", 50)),
+            "--seed",
+            str(warmup_case.get("seed", args.seed)),
+            "--seed-sequence",
+            csv_values(request_cases, "seed", args.seed),
+        ])
     elif family == "vibevoice_asr":
         common.extend([
             "--context",
@@ -4596,7 +4631,7 @@ def run_scenario(
                 "transcripts": args.qwen3_forced_aligner_request_transcripts,
                 "expected_words": [item.get("expected_words", []) for item in request_cases],
             }
-        elif family in {"higgs_audio_stt", "hviske_asr", "nemotron_asr", "vibevoice_asr"}:
+        elif family in {"higgs_audio_stt", "hviske_asr", "nemotron_asr", "vibevoice_asr", "voxtral_realtime"}:
             if len(args.case_names) > 1:
                 raise RuntimeError(f"{family} warmbench accepts at most one --case-name")
             case_name = args.case_names[0] if args.case_names else str(config.get("default_case_name", ""))
@@ -4650,7 +4685,7 @@ def run_scenario(
                 "warmup_audio": str(warmup_audio),
                 "audio_sequence": [str(path) for path in audio_requests],
             }
-        if family not in {"miocodec", "voxcpm2", "higgs_audio_stt", "hviske_asr", "nemotron_asr", "vibevoice_asr"}:
+        if family not in {"miocodec", "voxcpm2", "higgs_audio_stt", "hviske_asr", "nemotron_asr", "vibevoice_asr", "voxtral_realtime"}:
             python_command, cpp_command = build_audio_commands(family, scenario_config, backend, mode, args, scenario_dir, warmup_audio, audio_requests)
     (scenario_dir / "request_manifest.json").write_text(json.dumps(request_manifest, indent=2), encoding="utf-8")
 
@@ -4879,7 +4914,7 @@ def run_scenario(
             elif request_index >= len(cpp_summary.get("sequence_steps", [])):
                 parity = missing_parity(request_index, request_manifest["audio_sequence"][request_index], "missing_cpp_step")
             else:
-                if family == "qwen3_asr":
+                if family in {"qwen3_asr", "voxtral_realtime"}:
                     expected_fragments = request_manifest.get("expected_fragments", [])
                     parity = compare_qwen3_asr_step(
                         cpp_summary["sequence_steps"][request_index],

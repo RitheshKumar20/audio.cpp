@@ -202,6 +202,7 @@ add_library(engine_runtime STATIC
     src/framework/modules/attention/common_relative_attention.cpp
     src/framework/modules/attention/relative_attention.cpp
     src/framework/modules/attention/scaled_dot_product_attention.cpp
+    src/framework/modules/attention/grouped_query_attention.cpp
     src/framework/modules/attention/streaming_frame_attention_cache.cpp
     src/framework/modules/attention/qwen_decoder.cpp
     src/framework/modules/attention/qwen_causal_decoder.cpp
@@ -257,6 +258,12 @@ add_library(engine_runtime STATIC
     src/models/omnivoice/assets.cpp
     src/models/omnivoice/tokenizer_text.cpp
     src/models/omnivoice/audio_tokenizer.cpp
+    src/community_models/outetts/assets.cpp
+    src/community_models/outetts/dac.cpp
+    src/community_models/outetts/llama.cpp
+    src/community_models/outetts/loader.cpp
+    src/community_models/outetts/session.cpp
+    src/community_models/outetts/tokenizer.cpp
     src/models/omnivoice/prompt_builder.cpp
     src/models/omnivoice/generator.cpp
     src/models/omnivoice/postprocess.cpp
@@ -334,6 +341,13 @@ add_library(engine_runtime STATIC
     src/models/vibevoice_asr/speech_tokenizer.cpp
     src/models/vibevoice_asr/text_decoder.cpp
     src/models/vibevoice_asr/tokenizer_text.cpp
+    src/models/voxtral_realtime/assets.cpp
+    src/models/voxtral_realtime/tokenizer_text.cpp
+    src/models/voxtral_realtime/frontend.cpp
+    src/models/voxtral_realtime/audio_encoder.cpp
+    src/models/voxtral_realtime/text_decoder.cpp
+    src/models/voxtral_realtime/session.cpp
+    src/models/voxtral_realtime/loader.cpp
     src/models/heartmula/assets.cpp
     src/models/heartmula/codec.cpp
     src/models/heartmula/generator.cpp
@@ -719,6 +733,7 @@ if (ENGINE_BUILD_WARMBENCH)
     add_engine_warmbench(moss_tts_local_warm_bench tests/moss_tts_local/moss_tts_local_warm_bench.cpp)
     add_engine_warmbench(nemotron_asr_warm_bench tests/nemotron_asr/nemotron_asr_warm_bench.cpp)
     add_engine_warmbench(omnivoice_warm_bench tests/omnivoice/omnivoice_warm_bench.cpp)
+    add_engine_warmbench(outetts_warm_bench tests/outetts/outetts_warm_bench.cpp)
     add_engine_warmbench(pocket_tts_warm_bench tests/pocket_tts/pocket_tts_warm_bench.cpp)
     add_engine_warmbench(qwen3_asr_warm_bench tests/qwen3_asr/qwen3_asr_warm_bench.cpp)
     add_engine_warmbench(qwen3_forced_aligner_warm_bench tests/qwen3_forced_aligner/qwen3_forced_aligner_warm_bench.cpp)
@@ -729,6 +744,7 @@ if (ENGINE_BUILD_WARMBENCH)
     add_engine_warmbench(supertonic_warm_bench tests/supertonic/supertonic_warm_bench.cpp)
     add_engine_warmbench(vevo2_warm_bench tests/vevo2/vevo2_warm_bench.cpp)
     add_engine_warmbench(vibevoice_asr_warm_bench tests/vibevoice_asr/vibevoice_asr_warm_bench.cpp)
+    add_engine_warmbench(voxtral_realtime_warm_bench tests/voxtral_realtime/voxtral_realtime_warm_bench.cpp)
     add_engine_warmbench(voxcpm2_warm_bench tests/voxcpm2/voxcpm2_warm_bench.cpp)
 endif()
 
@@ -785,6 +801,14 @@ if (ENGINE_BUILD_TESTS)
     add_test(
         NAME audio_chunking_test
         COMMAND audio_chunking_test
+    )
+
+    add_engine_unittest(outetts_generation_budget_test tests/unittests/test_outetts_generation_budget.cpp)
+    target_include_directories(outetts_generation_budget_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests/unittests)
+
+    add_test(
+        NAME outetts_generation_budget_test
+        COMMAND outetts_generation_budget_test
     )
 
     add_engine_unittest(subtitle_formatter_test tests/unittests/test_subtitle_formatter.cpp)
@@ -932,6 +956,21 @@ if (ENGINE_BUILD_TESTS)
         NAME server_multipart_test
         COMMAND server_multipart_test
     )
+
+    add_executable(server_busy_guard_test
+        tests/unittests/test_server_busy_guard.cpp
+    )
+    target_include_directories(server_busy_guard_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/app/server)
+    find_package(Threads REQUIRED)
+    target_link_libraries(server_busy_guard_test PRIVATE Threads::Threads)
+
+    add_test(
+        NAME server_busy_guard_test
+        COMMAND server_busy_guard_test
+    )
+    # The suite deliberately drives threads against a held lock; bound it so a
+    # regression that reintroduces unbounded queuing fails instead of hanging CI.
+    set_tests_properties(server_busy_guard_test PROPERTIES TIMEOUT 60)
 
     add_executable(server_config_test
         tests/unittests/test_server_config.cpp

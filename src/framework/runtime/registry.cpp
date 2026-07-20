@@ -24,6 +24,7 @@
 #include "engine/models/moss/moss_tts_nano/loader.h"
 #include "engine/models/nemotron_asr/loader.h"
 #include "engine/models/omnivoice/loader.h"
+#include "engine/community_models/outetts/loader.h"
 #include "engine/models/pocket_tts/loader.h"
 #include "engine/models/qwen3_asr/loader.h"
 #include "engine/models/qwen3_forced_aligner/loader.h"
@@ -37,6 +38,7 @@
 #include "engine/models/vevo2/loader.h"
 #include "engine/models/vibevoice/loader.h"
 #include "engine/models/vibevoice_asr/loader.h"
+#include "engine/models/voxtral_realtime/loader.h"
 #include "engine/models/voxcpm2/loader.h"
 
 #include <algorithm>
@@ -246,6 +248,7 @@ ModelRegistry make_default_registry(const std::optional<std::filesystem::path> &
         engine::models::demucs::make_htdemucs_loader(),
         engine::models::roformer::make_mel_band_roformer_loader(),
         engine::models::omnivoice::make_omnivoice_loader(),
+        engine::models::outetts::make_outetts_loader(),
         engine::models::miocodec::make_miocodec_loader(),
         engine::models::miotts::make_miotts_loader(),
         engine::models::moss_tts_local::make_moss_tts_local_loader(),
@@ -253,6 +256,7 @@ ModelRegistry make_default_registry(const std::optional<std::filesystem::path> &
         engine::models::voxcpm2::make_voxcpm2_loader(),
         engine::models::vibevoice::make_vibevoice_loader(),
         engine::models::vibevoice_asr::make_vibevoice_asr_loader(),
+        engine::models::voxtral_realtime::make_voxtral_realtime_loader(),
         engine::models::heartmula::make_heartmula_loader(),
         engine::models::higgs_audio_stt::make_higgs_audio_stt_loader(),
         engine::models::higgs_tts::make_higgs_tts_loader(),
