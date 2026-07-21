@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -17,6 +18,7 @@ namespace {
 using Clock = std::chrono::steady_clock;
 
 constexpr int64_t kDefaultTextChunkSize = 1024;
+constexpr int64_t kDefaultReferenceCacheSlots = 1;
 
 void validate_matmul_weight_storage(assets::TensorStorageType storage_type, const char * option_name) {
     if (storage_type == assets::TensorStorageType::Native ||
@@ -46,6 +48,20 @@ uint64_t hash_audio_samples(const runtime::AudioBuffer & audio) {
         hash = fnv1a_mix(hash, &bits, sizeof(bits));
     }
     return hash;
+}
+
+std::size_t resolve_reference_cache_slots(const runtime::SessionOptions & options) {
+    const int64_t slots = runtime::parse_i64_option(
+        options.options,
+        {"higgs_tts.reference_cache_slots", "reference_cache_slots"})
+        .value_or(kDefaultReferenceCacheSlots);
+    if (slots < 0) {
+        throw std::runtime_error("higgs_tts.reference_cache_slots must be non-negative");
+    }
+    if (static_cast<std::uint64_t>(slots) > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+        throw std::runtime_error("higgs_tts.reference_cache_slots is too large");
+    }
+    return static_cast<std::size_t>(slots);
 }
 
 const runtime::AudioBuffer * find_reference_audio(const runtime::TaskRequest & request) {
@@ -109,7 +125,8 @@ HiggsTTSSession::HiggsTTSSession(
     std::shared_ptr<const HiggsAssets> assets)
     : RuntimeSessionBase(options),
       task_(task),
-      assets_(std::move(assets)) {
+      assets_(std::move(assets)),
+      reference_cache_(resolve_reference_cache_slots(this->options())) {
     if (assets_ == nullptr) {
         throw std::runtime_error("Higgs TTS session requires assets");
     }
@@ -155,6 +172,7 @@ HiggsTTSSession::HiggsTTSSession(
             key != "higgs_tts.ar_decode_graph_arena_mb" &&
             key != "higgs_tts.codec_decode_graph_arena_mb" &&
             key != "higgs_tts.codec_encode_graph_arena_mb" &&
+            key != "higgs_tts.reference_cache_slots" &&
             key != "higgs_tts.weight_type" &&
             key != "higgs_tts.ar_weight_type" &&
             key != "higgs_tts.codec_weight_type") {
@@ -243,35 +261,42 @@ const HiggsCodecEncodeOutput & HiggsTTSSession::resolve_reference_codes(
     const std::string & reference_text) {
     const uint64_t sample_count = static_cast<uint64_t>(audio.samples.size());
     const uint64_t sample_hash = hash_audio_samples(audio);
+    ReferenceCacheKey key;
+    key.reference_text = reference_text;
+    key.sample_rate = audio.sample_rate;
+    key.channels = audio.channels;
+    key.sample_count = sample_count;
+    key.sample_hash = sample_hash;
     debug::trace_log_scalar("higgs_tts.reference_audio.sample_rate", audio.sample_rate);
     debug::trace_log_scalar("higgs_tts.reference_audio.channels", audio.channels);
     debug::trace_log_f32("higgs_tts.reference_audio.samples",
                          {static_cast<int64_t>(audio.samples.size())},
                          audio.samples);
-    const bool cache_hit = reference_cache_.has_value()
-        && reference_cache_->reference_text == reference_text
-        && reference_cache_->sample_rate == audio.sample_rate
-        && reference_cache_->channels == audio.channels
-        && reference_cache_->sample_count == sample_count
-        && reference_cache_->sample_hash == sample_hash;
-    if (!cache_hit) {
-        const auto encode_start = Clock::now();
-        ReferenceCacheEntry entry;
-        entry.reference_text = reference_text;
-        entry.sample_rate = audio.sample_rate;
-        entry.channels = audio.channels;
-        entry.sample_count = sample_count;
-        entry.sample_hash = sample_hash;
-        entry.codes = codec_->encode_reference(audio);
-        debug::trace_log_scalar("higgs_tts.reference_codes.frames", entry.codes.frames);
-        debug::trace_log_scalar("higgs_tts.reference_codes.codebooks", entry.codes.codebooks);
-        debug::trace_log_i32("higgs_tts.reference_codes.values",
-                             {entry.codes.frames, entry.codes.codebooks},
-                             entry.codes.codes);
-        reference_cache_ = std::move(entry);
-        debug::timing_log_scalar("higgs_tts.codec.encode_reference_ms", engine::debug::elapsed_ms(encode_start));
+    debug::trace_log_scalar("higgs_tts.reference_cache.capacity", static_cast<int64_t>(reference_cache_.capacity()));
+    debug::trace_log_scalar("higgs_tts.reference_cache.size", static_cast<int64_t>(reference_cache_.size()));
+    if (const auto * cached = reference_cache_.find(key)) {
+        debug::trace_log_scalar("higgs_tts.reference_cache.hit", 1);
+        return cached->codes;
     }
-    return reference_cache_->codes;
+    debug::trace_log_scalar("higgs_tts.reference_cache.hit", 0);
+
+    const auto encode_start = Clock::now();
+    ReferenceCacheEntry entry;
+    entry.codes = codec_->encode_reference(audio);
+    codec_->release_encode_graph();
+    debug::trace_log_scalar("higgs_tts.reference_codes.frames", entry.codes.frames);
+    debug::trace_log_scalar("higgs_tts.reference_codes.codebooks", entry.codes.codebooks);
+    debug::trace_log_i32("higgs_tts.reference_codes.values",
+                         {entry.codes.frames, entry.codes.codebooks},
+                         entry.codes.codes);
+    if (reference_cache_.capacity() == 0) {
+        uncached_reference_ = std::move(entry);
+        debug::timing_log_scalar("higgs_tts.codec.encode_reference_ms", engine::debug::elapsed_ms(encode_start));
+        return uncached_reference_->codes;
+    }
+    reference_cache_.put(key, std::move(entry));
+    debug::timing_log_scalar("higgs_tts.codec.encode_reference_ms", engine::debug::elapsed_ms(encode_start));
+    return reference_cache_.find(key)->codes;
 }
 
 HiggsGenerationRequest HiggsTTSSession::make_generation_request(

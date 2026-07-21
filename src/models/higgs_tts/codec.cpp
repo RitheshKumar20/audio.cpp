@@ -1137,8 +1137,14 @@ public:
             ggml_set_output(outputs_[codebook]);
             ggml_build_forward_expand(graph_, outputs_[codebook]);
         }
-        buffer_ = ggml_backend_alloc_ctx_tensors(ctx_.get(), runtime_->backend());
-        if (buffer_ == nullptr) {
+        gallocr_ = ggml_gallocr_new(ggml_backend_get_default_buffer_type(runtime_->backend()));
+        if (gallocr_ == nullptr ||
+            !ggml_gallocr_reserve(gallocr_, graph_) ||
+            !ggml_gallocr_alloc_graph(gallocr_, graph_)) {
+            if (gallocr_ != nullptr) {
+                ggml_gallocr_free(gallocr_);
+                gallocr_ = nullptr;
+            }
             throw std::runtime_error("failed to allocate Higgs TTS codec encode graph");
         }
         engine::debug::timing_log_scalar("higgs_tts.codec.encode.graph.build_ms",
@@ -1147,8 +1153,8 @@ public:
 
     ~HiggsCodecEncodeGraph() {
         engine::core::release_backend_graph_resources(runtime_->backend(), graph_);
-        if (buffer_ != nullptr) {
-            ggml_backend_buffer_free(buffer_);
+        if (gallocr_ != nullptr) {
+            ggml_gallocr_free(gallocr_);
         }
     }
 
@@ -1212,7 +1218,7 @@ private:
     ggml_tensor * semantic_input_ = nullptr;
     std::array<ggml_tensor *, static_cast<size_t>(kCodecCodebooks)> outputs_ = {};
     ggml_cgraph * graph_ = nullptr;
-    ggml_backend_buffer_t buffer_ = nullptr;
+    ggml_gallocr_t gallocr_ = nullptr;
 };
 
 class HiggsCodecDecodeGraph {
@@ -1251,8 +1257,14 @@ public:
         ggml_set_output(output_);
         graph_ = ggml_new_graph_custom(ctx_.get(), 65536, false);
         ggml_build_forward_expand(graph_, output_);
-        buffer_ = ggml_backend_alloc_ctx_tensors(ctx_.get(), runtime_->backend());
-        if (buffer_ == nullptr) {
+        gallocr_ = ggml_gallocr_new(ggml_backend_get_default_buffer_type(runtime_->backend()));
+        if (gallocr_ == nullptr ||
+            !ggml_gallocr_reserve(gallocr_, graph_) ||
+            !ggml_gallocr_alloc_graph(gallocr_, graph_)) {
+            if (gallocr_ != nullptr) {
+                ggml_gallocr_free(gallocr_);
+                gallocr_ = nullptr;
+            }
             throw std::runtime_error("failed to allocate Higgs TTS codec decode graph");
         }
         code_scratch_.assign(static_cast<size_t>(capacity_frames_ * kCodecCodebooks), 0);
@@ -1263,8 +1275,8 @@ public:
 
     ~HiggsCodecDecodeGraph() {
         engine::core::release_backend_graph_resources(runtime_->backend(), graph_);
-        if (buffer_ != nullptr) {
-            ggml_backend_buffer_free(buffer_);
+        if (gallocr_ != nullptr) {
+            ggml_gallocr_free(gallocr_);
         }
     }
 
@@ -1337,7 +1349,7 @@ private:
     std::vector<int32_t> code_scratch_;
     std::vector<float> frame_mask_values_;
     ggml_cgraph * graph_ = nullptr;
-    ggml_backend_buffer_t buffer_ = nullptr;
+    ggml_gallocr_t gallocr_ = nullptr;
 };
 
 HiggsCodecWeights load_higgs_codec_decode_weights(const HiggsAssets & assets,
@@ -1609,6 +1621,15 @@ HiggsCodecDecodeOutput HiggsCodecRuntime::decode_codes(const std::vector<int32_t
         throw std::runtime_error("Higgs TTS codec chunked decode output length mismatch");
     }
     return out;
+}
+
+void HiggsCodecRuntime::release_encode_graph() {
+    encode_graph_.reset();
+}
+
+void HiggsCodecRuntime::release_runtime_graphs() {
+    release_encode_graph();
+    decode_graph_.reset();
 }
 
 } // namespace engine::models::higgs_tts

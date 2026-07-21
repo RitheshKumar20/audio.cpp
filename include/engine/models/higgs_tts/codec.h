@@ -113,6 +113,8 @@ public:
         const std::vector<int32_t> & codes,
         int64_t frames,
         int64_t codebooks) const;
+    void release_encode_graph();
+    void release_runtime_graphs();
 
 private:
     std::shared_ptr<const HiggsAssets> assets_;

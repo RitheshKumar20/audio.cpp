@@ -542,6 +542,7 @@ HiggsGenerationResult HiggsGenerator::generate(const HiggsGenerationRequest & re
                                  result.audio.values);
     engine::debug::timing_log_scalar("higgs_tts.generator.codec_decode_ms",
                                      engine::debug::elapsed_ms(codec_start, Clock::now()));
+    codec_->release_runtime_graphs();
     return result;
 }
 

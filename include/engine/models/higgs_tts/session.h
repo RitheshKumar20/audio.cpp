@@ -1,5 +1,6 @@
 #pragma once
 
+#include "engine/framework/runtime/cache_slots.h"
 #include "engine/framework/runtime/session_base.h"
 #include "engine/models/higgs_tts/assets.h"
 #include "engine/models/higgs_tts/ar.h"
@@ -31,12 +32,25 @@ public:
 
 private:
     struct ReferenceCacheEntry {
-        std::string reference_text;
+        HiggsCodecEncodeOutput codes;
+    };
+
+    struct ReferenceCacheKey {
         int sample_rate = 0;
         int channels = 0;
         uint64_t sample_count = 0;
         uint64_t sample_hash = 0;
-        HiggsCodecEncodeOutput codes;
+        std::string reference_text;
+    };
+
+    struct ReferenceCacheKeyEqual {
+        bool operator()(const ReferenceCacheKey & lhs, const ReferenceCacheKey & rhs) const noexcept {
+            return lhs.sample_rate == rhs.sample_rate &&
+                   lhs.channels == rhs.channels &&
+                   lhs.sample_count == rhs.sample_count &&
+                   lhs.sample_hash == rhs.sample_hash &&
+                   lhs.reference_text == rhs.reference_text;
+        }
     };
 
     HiggsGenerationRequest make_generation_request(
@@ -58,7 +72,8 @@ private:
     std::shared_ptr<HiggsARRuntime> ar_;
     std::shared_ptr<HiggsCodecRuntime> codec_;
     std::unique_ptr<HiggsGenerator> generator_;
-    std::optional<ReferenceCacheEntry> reference_cache_;
+    runtime::CacheSlots<ReferenceCacheKey, ReferenceCacheEntry, ReferenceCacheKeyEqual> reference_cache_;
+    std::optional<ReferenceCacheEntry> uncached_reference_;
 };
 
 }  // namespace engine::models::higgs_tts

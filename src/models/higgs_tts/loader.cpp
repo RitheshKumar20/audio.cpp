@@ -55,6 +55,7 @@ runtime::ModelCliInterface cli(const HiggsAssets &) {
         {"higgs_tts.ar_decode_graph_arena_mb", "n", "AR decode graph arena size."},
         {"higgs_tts.codec_decode_graph_arena_mb", "n", "Codec decode graph arena size."},
         {"higgs_tts.codec_encode_graph_arena_mb", "n", "Codec encode graph arena size."},
+        {"higgs_tts.reference_cache_slots", "n", "Encoded reference-audio cache slots; default 1."},
     };
     return out;
 }
