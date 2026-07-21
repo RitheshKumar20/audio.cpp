@@ -123,8 +123,11 @@ struct FishPrefillCacheTarget {
     std::vector<core::TensorValue> values;
 };
 
-modules::QwenDecoderActivationCastPolicy fish_activation_cast_policy() {
+modules::QwenDecoderActivationCastPolicy fish_activation_cast_policy(core::BackendType backend_type) {
     modules::QwenDecoderActivationCastPolicy policy;
+    if (backend_type == core::BackendType::Vulkan) {
+        return policy;
+    }
     policy.enabled = true;
     policy.type = GGML_TYPE_BF16;
     policy.after_input_norm = true;
@@ -143,7 +146,9 @@ modules::QwenDecoderActivationCastPolicy fish_activation_cast_policy() {
     return policy;
 }
 
-modules::QwenCausalDecoderConfig make_slow_decoder_config(const FishAudioTextConfig & config) {
+modules::QwenCausalDecoderConfig make_slow_decoder_config(
+    const FishAudioTextConfig & config,
+    core::BackendType backend_type) {
     modules::QwenCausalDecoderConfig out;
     out.stack.hidden_size = config.dim;
     out.stack.num_attention_heads = config.n_head;
@@ -157,7 +162,7 @@ modules::QwenCausalDecoderConfig make_slow_decoder_config(const FishAudioTextCon
     out.stack.attention_precision = GGML_PREC_F32;
     out.stack.qkv_layout = modules::QwenDecoderQKVLayout::PackedQKV;
     out.stack.use_qk_norm = config.attention_qk_norm;
-    out.stack.activation_cast = fish_activation_cast_policy();
+    out.stack.activation_cast = fish_activation_cast_policy(backend_type);
     out.stack.runtime.attention.prefill_mode = modules::QwenDecoderAttentionMode::FlashGroupedViewKV;
     out.stack.runtime.attention.static_mode = modules::QwenDecoderAttentionMode::FlashGroupedViewKV;
     out.stack.runtime.static_cache.update_mode = modules::QwenDecoderStaticCacheUpdateMode::DirectSetRows;
@@ -169,7 +174,9 @@ modules::QwenCausalDecoderConfig make_slow_decoder_config(const FishAudioTextCon
     return out;
 }
 
-modules::QwenCausalDecoderConfig make_fast_decoder_config(const FishAudioFastConfig & config) {
+modules::QwenCausalDecoderConfig make_fast_decoder_config(
+    const FishAudioFastConfig & config,
+    core::BackendType backend_type) {
     modules::QwenCausalDecoderConfig out;
     out.stack.hidden_size = config.dim;
     out.stack.num_attention_heads = config.n_head;
@@ -183,7 +190,7 @@ modules::QwenCausalDecoderConfig make_fast_decoder_config(const FishAudioFastCon
     out.stack.attention_precision = GGML_PREC_F32;
     out.stack.qkv_layout = modules::QwenDecoderQKVLayout::PackedQKV;
     out.stack.use_qk_norm = config.attention_qk_norm;
-    out.stack.activation_cast = fish_activation_cast_policy();
+    out.stack.activation_cast = fish_activation_cast_policy(backend_type);
     out.stack.runtime.attention.prefill_mode = modules::QwenDecoderAttentionMode::FlashGroupedViewKV;
     out.stack.runtime.attention.static_mode = modules::QwenDecoderAttentionMode::FlashGroupedViewKV;
     out.stack.runtime.static_cache.update_mode = modules::QwenDecoderStaticCacheUpdateMode::DirectSetRows;
@@ -687,7 +694,7 @@ FishStaticDecoderOutputs build_fish_static_decoder(
                             .build(ctx, hidden, weights.lm_head);
     auto fast_hidden = norm_fastlayer_input ? hidden : x;
     runtime::TransformerKVCacheOptions cache_options;
-    cache_options.allow_bf16_storage = true;
+    cache_options.allow_bf16_storage = !cache_keys.empty() && cache_keys.front().type == GGML_TYPE_BF16;
     return {
         fast_hidden,
         logits,
@@ -928,7 +935,7 @@ private:
                 input,
                 positions_value,
                 bind_slow_weights(*constants_, runtime_->weights(), config),
-                make_slow_decoder_config(config),
+                make_slow_decoder_config(config, runtime_->backend_type()),
                 assets.config.norm_fastlayer_input);
             graph_ = ggml_new_graph_custom(ctx_.get(), 65536, false);
             for (size_t layer_index = 0; layer_index < decoder.state.layers.size(); ++layer_index) {
@@ -1050,27 +1057,29 @@ private:
             std::vector<core::TensorValue> cache_values;
             cache_keys.reserve(runtime_->weights().slow_layers.size());
             cache_values.reserve(runtime_->weights().slow_layers.size());
+            const ggml_type cache_type =
+                runtime_->backend_type() == core::BackendType::Vulkan ? GGML_TYPE_F32 : GGML_TYPE_BF16;
             for (size_t layer = 0; layer < runtime_->weights().slow_layers.size(); ++layer) {
                 cache_keys.push_back(core::wrap_tensor(
                     ggml_new_tensor_4d(
                         state_ctx_.get(),
-                        GGML_TYPE_BF16,
+                        cache_type,
                         config.head_dim,
                         config.n_local_heads,
                         cache_steps_,
                         1),
                     core::TensorShape::from_dims({1, cache_steps_, config.n_local_heads, config.head_dim}),
-                    GGML_TYPE_BF16));
+                    cache_type));
                 cache_values.push_back(core::wrap_tensor(
                     ggml_new_tensor_4d(
                         state_ctx_.get(),
-                        GGML_TYPE_BF16,
+                        cache_type,
                         config.head_dim,
                         config.n_local_heads,
                         cache_steps_,
                         1),
                     core::TensorShape::from_dims({1, cache_steps_, config.n_local_heads, config.head_dim}),
-                    GGML_TYPE_BF16));
+                    cache_type));
             }
             state_buffer_ = ggml_backend_alloc_ctx_tensors(state_ctx_.get(), runtime_->backend());
             if (state_buffer_ == nullptr) {
@@ -1092,7 +1101,7 @@ private:
                 input,
                 position_value,
                 bind_slow_weights(constants, runtime_->weights(), config),
-                make_slow_decoder_config(config),
+                make_slow_decoder_config(config, runtime_->backend_type()),
                 cache_steps_,
                 mask_value,
                 cache_slot_value,
@@ -1237,27 +1246,29 @@ private:
             std::vector<core::TensorValue> cache_values;
             cache_keys.reserve(weights.fast_layers.size());
             cache_values.reserve(weights.fast_layers.size());
+            const ggml_type cache_type =
+                runtime_->backend_type() == core::BackendType::Vulkan ? GGML_TYPE_F32 : GGML_TYPE_BF16;
             for (size_t layer = 0; layer < weights.fast_layers.size(); ++layer) {
                 cache_keys.push_back(core::wrap_tensor(
                     ggml_new_tensor_4d(
                         state_ctx_.get(),
-                        GGML_TYPE_BF16,
+                        cache_type,
                         config.head_dim,
                         config.n_local_heads,
                         config.num_codebooks,
                         1),
                     core::TensorShape::from_dims({1, config.num_codebooks, config.n_local_heads, config.head_dim}),
-                    GGML_TYPE_BF16));
+                    cache_type));
                 cache_values.push_back(core::wrap_tensor(
                     ggml_new_tensor_4d(
                         state_ctx_.get(),
-                        GGML_TYPE_BF16,
+                        cache_type,
                         config.head_dim,
                         config.n_local_heads,
                         config.num_codebooks,
                         1),
                     core::TensorShape::from_dims({1, config.num_codebooks, config.n_local_heads, config.head_dim}),
-                    GGML_TYPE_BF16));
+                    cache_type));
             }
             state_buffer_ = ggml_backend_alloc_ctx_tensors(state_ctx_.get(), runtime_->backend());
             if (state_buffer_ == nullptr) {
@@ -1293,7 +1304,7 @@ private:
                 input,
                 position_value,
                 decoder_weights,
-                make_fast_decoder_config(config),
+                make_fast_decoder_config(config, runtime_->backend_type()),
                 config.num_codebooks,
                 mask_value,
                 position_value,
