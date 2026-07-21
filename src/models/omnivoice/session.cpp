@@ -21,6 +21,27 @@ constexpr size_t kDefaultGeneratorDecodeGraphArenaBytes = 256ull * 1024ull * 102
 constexpr size_t kDefaultAudioTokenizerWeightContextBytes = 128ull * 1024ull * 1024ull;
 constexpr size_t kDefaultGeneratorWeightContextBytes = 256ull * 1024ull * 1024ull;
 
+// k2-fsa/OmniVoice#77 (model maintainer): 16 inference steps "also performs
+// well" and is meaningfully faster than the offline path's default (32) --
+// used only when the streaming caller doesn't explicitly set num_inference_
+// steps, since streaming's whole point is lower per-chunk latency.
+constexpr const char * kNumInferenceStepsKey = "num_inference_steps";
+constexpr const char * kStreamingDefaultNumInferenceSteps = "16";
+
+// Chunk sizing for streaming keeps the offline path's normal duration
+// target (audio_chunk_duration_seconds) -- shrinking that target uniformly
+// turned out not to help (see the first-sentence peel below for why) and
+// would only add per-chunk fixed overhead (reference/prompt setup already
+// happens once per request, not per chunk, but each chunk is still its own
+// generate()+decode() call). Instead, only the very FIRST chunk is
+// deliberately kept small (one sentence), and every chunk after it uses the
+// normal, larger target -- see the peel step in run_streaming_request. By
+// the time chunk 0 finishes *playing* (~its own audio duration), chunk 1
+// should already be generated: measured RTF at 16 inference steps is well
+// under 1 (~0.2-0.3), so generation runs several times faster than realtime
+// and comfortably outpaces playback consumption even for a normal-sized
+// chunk 1 while a short chunk 0 is still playing.
+
 std::shared_ptr<const OmniVoiceAssets> require_assets(std::shared_ptr<const OmniVoiceAssets> assets) {
     if (assets == nullptr) {
         throw std::runtime_error("OmniVoice session requires assets");
@@ -142,6 +163,14 @@ std::optional<std::string> request_option(
     return std::nullopt;
 }
 
+float fade_weight(size_t index, size_t count, float start, float end) {
+    if (count <= 1) {
+        return start;
+    }
+    const float t = static_cast<float>(index) / static_cast<float>(count - 1);
+    return start + (end - start) * t;
+}
+
 void append_cross_faded_chunk(
     runtime::AudioBuffer & merged,
     const runtime::AudioBuffer & chunk,
@@ -161,13 +190,6 @@ void append_cross_faded_chunk(
     const size_t total_n = static_cast<size_t>(std::max(0.0F, silence_duration_seconds) * static_cast<float>(sample_rate));
     const size_t fade_n = total_n / 3;
     const size_t silence_n = fade_n;
-    const auto fade_weight = [](size_t index, size_t count, float start, float end) {
-        if (count <= 1) {
-            return start;
-        }
-        const float t = static_cast<float>(index) / static_cast<float>(count - 1);
-        return start + (end - start) * t;
-    };
     const size_t fout_n = std::min(fade_n, merged.samples.size());
     if (fout_n > 0) {
         for (size_t i = 0; i < fout_n; ++i) {
@@ -187,9 +209,29 @@ void append_cross_faded_chunk(
     }
 }
 
+// Streaming counterpart to append_cross_faded_chunk: fades only the
+// INCOMING chunk's own head, in place, no silence insertion, no dependency
+// on (or mutation of) whatever was emitted before it. A full two-sided
+// crossfade would need to hold the previous chunk back until this one
+// exists so their edges can blend -- once a chunk has already gone out over
+// the wire to a streaming client, its tail can't be un-sent. This trades a
+// slightly less seamless boundary for zero added latency, which is the
+// entire point of the streaming path.
+void apply_fade_in(runtime::AudioBuffer & chunk, float fade_seconds) {
+    if (chunk.sample_rate <= 0 || chunk.samples.empty()) {
+        return;
+    }
+    const size_t fade_n = std::min(
+        chunk.samples.size(),
+        static_cast<size_t>(std::max(0.0F, fade_seconds) * static_cast<float>(chunk.sample_rate)));
+    for (size_t i = 0; i < fade_n; ++i) {
+        chunk.samples[i] *= fade_weight(i, fade_n, 0.0F, 1.0F);
+    }
+}
+
 }  // namespace
 
-OmniVoiceSession::OmniVoiceSession(
+OmniVoiceSessionBase::OmniVoiceSessionBase(
     runtime::TaskSpec task,
     runtime::SessionOptions options,
     std::shared_ptr<const OmniVoiceAssets> assets)
@@ -242,19 +284,19 @@ OmniVoiceSession::OmniVoiceSession(
     assets_->audio_tokenizer_weights->release_storage();
 }
 
-std::string OmniVoiceSession::family() const {
+std::string OmniVoiceSessionBase::family_impl() const {
     return "omnivoice";
 }
 
-runtime::VoiceTaskKind OmniVoiceSession::task_kind() const {
+runtime::VoiceTaskKind OmniVoiceSessionBase::task_kind_impl() const {
     return task_.task;
 }
 
-runtime::RunMode OmniVoiceSession::run_mode() const {
+runtime::RunMode OmniVoiceSessionBase::run_mode_impl() const {
     return task_.mode;
 }
 
-void OmniVoiceSession::prepare(const runtime::SessionPreparationRequest & request) {
+void OmniVoiceSessionBase::prepare_impl(const runtime::SessionPreparationRequest & request) {
     session_defaults_ = {};
     reference_prompt_cache_.reset();
     if (request.text.has_value()) {
@@ -291,11 +333,48 @@ void OmniVoiceSession::prepare(const runtime::SessionPreparationRequest & reques
     mark_prepared();
 }
 
-runtime::TaskResult OmniVoiceSession::run(const runtime::TaskRequest & request) {
-    require_prepared("OmniVoice run()");
-    if (task_.mode != runtime::RunMode::Offline) {
-        throw std::runtime_error("OmniVoice run() requires an offline session");
+std::vector<std::string> OmniVoiceSessionBase::plan_text_chunks(
+    const OmniVoiceRequest & request,
+    const OmniVoicePrompt & prompt) const {
+    const int64_t chunk_threshold = static_cast<int64_t>(std::llround(
+        static_cast<double>(request.generation.audio_chunk_threshold_seconds) *
+        static_cast<double>(prompt_builder_.frame_rate())));
+    const bool use_explicit_text_chunking = request.generation.text_chunk_size.has_value();
+    if (!use_explicit_text_chunking && prompt.target_audio_tokens <= chunk_threshold) {
+        engine::debug::trace_log_scalar("omnivoice.text_chunk_count", int64_t{1});
+        return {prompt.text};
     }
+
+    std::vector<std::string> text_chunks;
+    int64_t text_chunk_size = 0;
+    if (use_explicit_text_chunking) {
+        text_chunk_size = *request.generation.text_chunk_size;
+        text_chunks = engine::text::split_text_chunks(
+            prompt.text,
+            text_chunk_size,
+            request.generation.text_chunk_mode);
+    } else {
+        const double avg_tokens_per_char =
+            static_cast<double>(prompt.target_audio_tokens) /
+            static_cast<double>(std::max<size_t>(1, prompt.text.size()));
+        text_chunk_size = std::max<int64_t>(
+            1,
+            static_cast<int64_t>(request.generation.audio_chunk_duration_seconds *
+                                 static_cast<float>(prompt_builder_.frame_rate()) / avg_tokens_per_char));
+        text_chunks = prompt_builder_.chunk_text_punctuation(prompt.text, text_chunk_size, 3);
+    }
+    engine::debug::trace_log_scalar("omnivoice.text_chunk_size", text_chunk_size);
+    if (use_explicit_text_chunking) {
+        engine::debug::trace_log_scalar(
+            "omnivoice.text_chunk_mode",
+            engine::text::text_chunk_mode_name(request.generation.text_chunk_mode));
+    }
+    engine::debug::trace_log_scalar("omnivoice.text_chunk_count", static_cast<int64_t>(text_chunks.size()));
+    return text_chunks;
+}
+
+runtime::TaskResult OmniVoiceSessionBase::run_offline_request(const runtime::TaskRequest & request) {
+    require_prepared("OmniVoice run()");
     const auto wall_start = Clock::now();
     auto omni_request = make_request(request);
     if (omni_request.generation.seed.has_value()) {
@@ -328,9 +407,6 @@ runtime::TaskResult OmniVoiceSession::run(const runtime::TaskRequest & request) 
     const auto prompt_start = Clock::now();
     const auto prompt = prompt_builder_.build(omni_request);
     const auto prompt_end = Clock::now();
-    const int64_t chunk_threshold = static_cast<int64_t>(std::llround(
-        static_cast<double>(omni_request.generation.audio_chunk_threshold_seconds) *
-        static_cast<double>(prompt_builder_.frame_rate())));
     OmniVoiceGeneratedAudioTokens generated_tokens;
     runtime::AudioBuffer audio = {};
     bool any_generator_graph_rebuilt = false;
@@ -342,8 +418,8 @@ runtime::TaskResult OmniVoiceSession::run(const runtime::TaskRequest & request) 
     const auto generate_start = Clock::now();
     double measured_generate_ms = 0.0;
     double measured_decode_ms = 0.0;
-    const bool use_explicit_text_chunking = omni_request.generation.text_chunk_size.has_value();
-    if (!use_explicit_text_chunking && prompt.target_audio_tokens <= chunk_threshold) {
+    auto text_chunks = plan_text_chunks(omni_request, prompt);
+    if (text_chunks.size() <= 1) {
         generated_tokens = generator_.generate(prompt, omni_request.generation);
         engine::debug::timing_log_scalar("omnivoice.generator.forward_ms", generated_tokens.forward_ms);
         engine::debug::timing_log_scalar("omnivoice.generator.upload_ms", generated_tokens.upload_ms);
@@ -383,31 +459,6 @@ runtime::TaskResult OmniVoiceSession::run(const runtime::TaskRequest & request) 
         }
         measured_decode_ms = engine::debug::elapsed_ms(decode_start, decode_end);
     } else {
-        std::vector<std::string> text_chunks;
-        int64_t text_chunk_size = 0;
-        if (use_explicit_text_chunking) {
-            text_chunk_size = *omni_request.generation.text_chunk_size;
-            text_chunks = engine::text::split_text_chunks(
-                prompt.text,
-                text_chunk_size,
-                omni_request.generation.text_chunk_mode);
-        } else {
-            const double avg_tokens_per_char =
-                static_cast<double>(prompt.target_audio_tokens) /
-                static_cast<double>(std::max<size_t>(1, prompt.text.size()));
-            text_chunk_size = std::max<int64_t>(
-                1,
-                static_cast<int64_t>(omni_request.generation.audio_chunk_duration_seconds *
-                                     static_cast<float>(prompt_builder_.frame_rate()) / avg_tokens_per_char));
-            text_chunks = prompt_builder_.chunk_text_punctuation(prompt.text, text_chunk_size, 3);
-        }
-        engine::debug::trace_log_scalar("omnivoice.text_chunk_size", text_chunk_size);
-        if (use_explicit_text_chunking) {
-            engine::debug::trace_log_scalar(
-                "omnivoice.text_chunk_mode",
-                engine::text::text_chunk_mode_name(omni_request.generation.text_chunk_mode));
-        }
-        engine::debug::trace_log_scalar("omnivoice.text_chunk_count", static_cast<int64_t>(text_chunks.size()));
         const bool has_reference_audio = omni_request.reference_audio_tokens.has_value();
         std::optional<OmniVoiceAudioTokens> first_chunk_reference = std::nullopt;
         std::string first_chunk_text;
@@ -517,82 +568,151 @@ runtime::TaskResult OmniVoiceSession::run(const runtime::TaskRequest & request) 
     return task_result;
 }
 
-runtime::StreamingPolicy OmniVoiceSession::streaming_policy() const {
-    runtime::StreamingPolicy policy;
-    policy.input = runtime::StreamingInputKind::None;
-    policy.output = runtime::StreamingOutputKind::PullEvents;
-    return policy;
-}
-
-void OmniVoiceSession::start_stream(const runtime::TaskRequest & request) {
-    require_prepared("OmniVoice streaming");
+runtime::TaskResult OmniVoiceSessionBase::run_streaming_request(
+    const runtime::TaskRequest & request,
+    const runtime::StreamEventCallback & stream_event_sink) {
+    require_prepared("OmniVoice run_streaming");
     if (task_.mode != runtime::RunMode::Streaming) {
-        throw std::runtime_error("OmniVoice start_stream requires a streaming session");
+        throw std::runtime_error("OmniVoice run_streaming requires a streaming session");
     }
-    reset();
-    initialize_streaming_request(request);
-    stream_started_ = true;
-}
 
-std::optional<runtime::StreamEvent> OmniVoiceSession::next_stream_event() {
-    if (!stream_started_) {
-        throw std::runtime_error("OmniVoice streaming has not been started");
+    // Lower default num_inference_steps for streaming, unless the caller
+    // asked for something else -- see kStreamingDefaultNumInferenceSteps.
+    runtime::TaskRequest streaming_request = request;
+    const auto merged_defaults = merged_request_options(streaming_request);
+    if (merged_defaults.find(kNumInferenceStepsKey) == merged_defaults.end()) {
+        streaming_request.options[kNumInferenceStepsKey] = kStreamingDefaultNumInferenceSteps;
     }
-    if (stream_chunk_index_ >= stream_text_chunks_.size()) {
-        return std::nullopt;
-    }
-    const size_t chunk_index = stream_chunk_index_++;
-    auto chunk_audio = synthesize_stream_chunk(chunk_index);
-    append_cross_faded_chunk(stream_merged_audio_, chunk_audio);
 
-    runtime::StreamEvent event;
-    event.named_audio_outputs.push_back({
-        "chunk_" + std::to_string(chunk_index),
-        std::move(chunk_audio),
-        {},
-    });
-    return event;
-}
-
-void OmniVoiceSession::set_stream_event_sink(runtime::StreamEventCallback sink) {
-    (void)sink;
-}
-
-runtime::TaskResult OmniVoiceSession::finish_stream() {
-    if (!stream_started_) {
-        throw std::runtime_error("OmniVoice streaming has not been started");
-    }
-    while (next_stream_event().has_value()) {
+    const auto wall_start = Clock::now();
+    auto omni_request = make_request(streaming_request);
+    if (omni_request.generation.seed.has_value()) {
+        generator_.seed_rng(*omni_request.generation.seed);
     }
     runtime::TaskResult task_result;
-    const auto result = postprocessor_.finalize(stream_merged_audio_, *stream_request_);
-    task_result.audio_output = result.audio;
-    reset();
+    if (omni_request.reference_audio.has_value()) {
+        const auto reference_tokens = resolve_reference_audio_tokens(
+            *omni_request.reference_audio,
+            omni_request.generation.preprocess_prompt,
+            !omni_request.reference_text.empty());
+        omni_request.reference_rms = reference_tokens.reference_rms;
+        omni_request.reference_audio_tokens = std::move(reference_tokens);
+        omni_request.reference_audio.reset();
+        if (mem_saver_) {
+            audio_tokenizer_.release_runtime_graphs();
+        }
+    }
+    const auto prompt = prompt_builder_.build(omni_request);
+
+    // Always chunk (even a short single-chunk request just yields one
+    // stream event) -- streaming's whole point is progressive emission, so
+    // there's no separate "small enough, do it in one shot" branch here the
+    // way the offline path has.
+    auto text_chunks = plan_text_chunks(omni_request, prompt);
+    if (text_chunks.empty()) {
+        text_chunks.push_back(prompt.text);
+    }
+
+    // Peel just the first SENTENCE off text_chunks[0] into its own chunk --
+    // see the chunk-sizing comment above for why. chunk_text_punctuation
+    // with a chunk_len of 1 forces one-sentence-per-element (no sentence is
+    // ever split smaller than itself), so this reuses the same sentence-
+    // boundary logic the normal chunking pass above already relies on,
+    // rather than a separate splitting method. No-op when text_chunks[0]
+    // was already a single sentence (the common case once a chunk's target
+    // duration is below one sentence's natural length).
+    {
+        auto first_chunk_sentences = prompt_builder_.chunk_text_punctuation(text_chunks[0], 1, std::nullopt);
+        if (first_chunk_sentences.size() > 1) {
+            std::string rest_of_first_chunk;
+            for (size_t i = 1; i < first_chunk_sentences.size(); ++i) {
+                rest_of_first_chunk += first_chunk_sentences[i];
+            }
+            text_chunks[0] = first_chunk_sentences.front();
+            text_chunks.insert(text_chunks.begin() + 1, std::move(rest_of_first_chunk));
+        }
+    }
+
+    engine::debug::trace_log_scalar("omnivoice.text_chunk_count", static_cast<int64_t>(text_chunks.size()));
+
+    const bool has_reference_audio = omni_request.reference_audio_tokens.has_value();
+    std::optional<OmniVoiceAudioTokens> first_chunk_reference = std::nullopt;
+    std::string first_chunk_text;
+    OmniVoiceRequest chunk_request = omni_request;
+    int64_t chunk_codebooks = 0;
+    chunk_request.generation.duration_seconds.reset();
+
+    runtime::AudioBuffer merged;
+    double generator_ms = 0.0;
+    double decoder_ms = 0.0;
+    constexpr float kChunkFadeInSeconds = 0.05F;
+    for (size_t chunk_index = 0; chunk_index < text_chunks.size(); ++chunk_index) {
+        chunk_request.text = text_chunks[chunk_index];
+        if (!has_reference_audio && chunk_index > 0) {
+            chunk_request.reference_audio_tokens = *first_chunk_reference;
+            chunk_request.reference_text = first_chunk_text;
+        }
+        const auto chunk_prompt = prompt_builder_.build(chunk_request);
+        const auto generate_start = Clock::now();
+        auto chunk_tokens = generator_.generate(chunk_prompt, chunk_request.generation);
+        generator_ms += engine::debug::elapsed_ms(generate_start, Clock::now());
+        if (mem_saver_) {
+            generator_.release_runtime_graphs();
+        }
+        if (chunk_codebooks == 0) {
+            chunk_codebooks = chunk_tokens.codebooks;
+        } else if (chunk_codebooks != chunk_tokens.codebooks) {
+            throw std::runtime_error("OmniVoice streaming chunk token codebook mismatch");
+        }
+        if (!has_reference_audio && chunk_index == 0) {
+            OmniVoiceAudioTokens chunk_ref = {};
+            chunk_ref.frames = chunk_tokens.frames;
+            chunk_ref.codebooks = chunk_tokens.codebooks;
+            chunk_ref.token_ids = chunk_tokens.token_ids;
+            first_chunk_reference = std::move(chunk_ref);
+            first_chunk_text = text_chunks.front();
+        }
+
+        const auto decode_start = Clock::now();
+        auto chunk_audio = audio_tokenizer_.decode_audio_tokens(chunk_tokens);
+        decoder_ms += engine::debug::elapsed_ms(decode_start, Clock::now());
+        if (mem_saver_) {
+            audio_tokenizer_.release_runtime_graphs();
+        }
+
+        if (chunk_index > 0) {
+            apply_fade_in(chunk_audio, kChunkFadeInSeconds);
+        }
+
+        runtime::NamedAudioBuffer named;
+        named.id = "chunk_" + std::to_string(chunk_index);
+        named.audio = chunk_audio;
+        named.meta.insert_or_assign("chunk_index", std::to_string(chunk_index));
+        named.meta.insert_or_assign("chunk_count", std::to_string(text_chunks.size()));
+        if (stream_event_sink) {
+            runtime::StreamEvent event;
+            event.is_final = (chunk_index + 1 == text_chunks.size());
+            event.named_audio_outputs.push_back(named);
+            stream_event_sink(event);
+        }
+        task_result.named_audio_outputs.push_back(std::move(named));
+
+        if (merged.sample_rate == 0) {
+            merged.sample_rate = chunk_audio.sample_rate;
+            merged.channels = chunk_audio.channels;
+        }
+        merged.samples.insert(merged.samples.end(), chunk_audio.samples.begin(), chunk_audio.samples.end());
+    }
+    task_result.audio_output = std::move(merged);
+
+    engine::debug::timing_log_scalar("omnivoice.streaming.generator_ms", generator_ms);
+    engine::debug::timing_log_scalar("omnivoice.streaming.decoder_ms", decoder_ms);
+    engine::debug::timing_log_scalar("omnivoice.streaming.chunks", static_cast<double>(text_chunks.size()));
+    engine::debug::timing_log_scalar("session.wall_ms", engine::debug::elapsed_ms(wall_start, Clock::now()));
     return task_result;
 }
 
-void OmniVoiceSession::reset() {
-    stream_request_.reset();
-    stream_text_chunks_.clear();
-    stream_first_chunk_reference_.reset();
-    stream_first_chunk_text_.clear();
-    stream_merged_audio_ = runtime::AudioBuffer{};
-    stream_chunk_index_ = 0;
-    stream_chunk_codebooks_ = 0;
-    stream_started_ = false;
-    stream_has_reference_audio_ = false;
-}
-
-runtime::StreamEvent OmniVoiceSession::process_audio_chunk(const runtime::AudioChunk & chunk) {
-    (void)chunk;
-    throw std::runtime_error("OmniVoice streaming does not consume audio chunks");
-}
-
-runtime::TaskResult OmniVoiceSession::finalize() {
-    return finish_stream();
-}
-
-OmniVoiceRequest OmniVoiceSession::make_request(const runtime::TaskRequest & request) const {
+OmniVoiceRequest OmniVoiceSessionBase::make_request(const runtime::TaskRequest & request) const {
     if (!request.text_input.has_value() && !session_defaults_.text.has_value()) {
         throw std::runtime_error("OmniVoice run() requires text_input");
     }
@@ -616,7 +736,7 @@ OmniVoiceRequest OmniVoiceSession::make_request(const runtime::TaskRequest & req
     return out;
 }
 
-std::optional<runtime::AudioBuffer> OmniVoiceSession::resolve_reference_audio(const runtime::TaskRequest & request) const {
+std::optional<runtime::AudioBuffer> OmniVoiceSessionBase::resolve_reference_audio(const runtime::TaskRequest & request) const {
     if (request.voice.has_value() && request.voice->speaker.has_value() && request.voice->speaker->audio.has_value()) {
         return *request.voice->speaker->audio;
     }
@@ -626,14 +746,14 @@ std::optional<runtime::AudioBuffer> OmniVoiceSession::resolve_reference_audio(co
     return session_defaults_.reference_audio;
 }
 
-std::optional<std::string> OmniVoiceSession::resolve_reference_text(const runtime::TaskRequest & request) const {
+std::optional<std::string> OmniVoiceSessionBase::resolve_reference_text(const runtime::TaskRequest & request) const {
     if (const auto value = request_option(request.options, "reference_text"); value.has_value()) {
         return value;
     }
     return session_defaults_.reference_text;
 }
 
-std::optional<std::string> OmniVoiceSession::resolve_instruct(const runtime::TaskRequest & request) const {
+std::optional<std::string> OmniVoiceSessionBase::resolve_instruct(const runtime::TaskRequest & request) const {
     if (const auto value = request_option(request.options, "instruct"); value.has_value()) {
         return value;
     }
@@ -646,7 +766,7 @@ std::optional<std::string> OmniVoiceSession::resolve_instruct(const runtime::Tas
     return session_defaults_.instruct;
 }
 
-std::unordered_map<std::string, std::string> OmniVoiceSession::merged_request_options(const runtime::TaskRequest & request) const {
+std::unordered_map<std::string, std::string> OmniVoiceSessionBase::merged_request_options(const runtime::TaskRequest & request) const {
     auto merged = session_defaults_.options;
     for (const auto & [key, value] : request.options) {
         merged[key] = value;
@@ -654,7 +774,7 @@ std::unordered_map<std::string, std::string> OmniVoiceSession::merged_request_op
     return merged;
 }
 
-OmniVoiceAudioTokens OmniVoiceSession::resolve_reference_audio_tokens(
+OmniVoiceAudioTokens OmniVoiceSessionBase::resolve_reference_audio_tokens(
     const runtime::AudioBuffer & audio,
     bool preprocess_prompt,
     bool reference_text_provided) {
@@ -685,136 +805,107 @@ OmniVoiceAudioTokens OmniVoiceSession::resolve_reference_audio_tokens(
     return reference_prompt_cache_->tokens;
 }
 
-std::vector<std::string> OmniVoiceSession::plan_text_chunks(
-    const OmniVoiceRequest & request,
-    const OmniVoicePrompt & prompt) const {
-    const int64_t chunk_threshold = static_cast<int64_t>(std::llround(
-        static_cast<double>(request.generation.audio_chunk_threshold_seconds) *
-        static_cast<double>(prompt_builder_.frame_rate())));
-    const bool use_explicit_text_chunking = request.generation.text_chunk_size.has_value();
-    if (!use_explicit_text_chunking && prompt.target_audio_tokens <= chunk_threshold) {
-        engine::debug::trace_log_scalar("omnivoice.text_chunk_count", int64_t{1});
-        return {prompt.text};
-    }
+OmniVoiceOfflineSession::OmniVoiceOfflineSession(
+    runtime::TaskSpec task,
+    runtime::SessionOptions options,
+    std::shared_ptr<const OmniVoiceAssets> assets)
+    : OmniVoiceSessionBase(task, std::move(options), std::move(assets)) {}
 
-    std::vector<std::string> text_chunks;
-    int64_t text_chunk_size = 0;
-    if (use_explicit_text_chunking) {
-        text_chunk_size = *request.generation.text_chunk_size;
-        text_chunks = engine::text::split_text_chunks(
-            prompt.text,
-            text_chunk_size,
-            request.generation.text_chunk_mode);
-    } else {
-        const double avg_tokens_per_char =
-            static_cast<double>(prompt.target_audio_tokens) /
-            static_cast<double>(std::max<size_t>(1, prompt.text.size()));
-        text_chunk_size = std::max<int64_t>(
-            1,
-            static_cast<int64_t>(request.generation.audio_chunk_duration_seconds *
-                                 static_cast<float>(prompt_builder_.frame_rate()) / avg_tokens_per_char));
-        text_chunks = prompt_builder_.chunk_text_punctuation(prompt.text, text_chunk_size, 3);
-    }
-    engine::debug::trace_log_scalar("omnivoice.text_chunk_size", text_chunk_size);
-    if (use_explicit_text_chunking) {
-        engine::debug::trace_log_scalar(
-            "omnivoice.text_chunk_mode",
-            engine::text::text_chunk_mode_name(request.generation.text_chunk_mode));
-    }
-    engine::debug::trace_log_scalar("omnivoice.text_chunk_count", static_cast<int64_t>(text_chunks.size()));
-    return text_chunks;
+std::string OmniVoiceOfflineSession::family() const {
+    return family_impl();
 }
 
-void OmniVoiceSession::initialize_streaming_request(const runtime::TaskRequest & request) {
-    auto omni_request = make_request(request);
-    if (omni_request.generation.seed.has_value()) {
-        generator_.seed_rng(*omni_request.generation.seed);
-    }
-    if (omni_request.reference_audio.has_value()) {
-        const auto reference_tokens = resolve_reference_audio_tokens(
-            *omni_request.reference_audio,
-            omni_request.generation.preprocess_prompt,
-            !omni_request.reference_text.empty());
-        omni_request.reference_rms = reference_tokens.reference_rms;
-        omni_request.reference_audio_tokens = std::move(reference_tokens);
-        omni_request.reference_audio.reset();
-        if (mem_saver_) {
-            audio_tokenizer_.release_runtime_graphs();
-        }
-    }
-
-    const auto prompt = prompt_builder_.build(omni_request);
-    stream_has_reference_audio_ = omni_request.reference_audio_tokens.has_value();
-    stream_text_chunks_ = plan_text_chunks(omni_request, prompt);
-    const auto duration_seconds = omni_request.generation.duration_seconds;
-    omni_request.generation.duration_seconds.reset();
-    if (duration_seconds.has_value()) {
-        const int64_t full_estimate = prompt_builder_.estimate_target_tokens(
-            prompt.text,
-            prompt.reference_text.empty() ? std::optional<std::string>() : std::make_optional(prompt.reference_text),
-            prompt.reference_audio_tokens.has_value()
-                ? std::make_optional(prompt.reference_audio_tokens->frames)
-                : std::optional<int64_t>(),
-            1.0F);
-        const int64_t duration_target = std::max<int64_t>(
-            1,
-            static_cast<int64_t>(std::llround(
-                static_cast<double>(*duration_seconds) *
-                static_cast<double>(prompt_builder_.frame_rate()))));
-        omni_request.generation.speed = static_cast<float>(full_estimate) / static_cast<float>(duration_target);
-    }
-
-    const int sample_rate = assets_->config.audio_tokenizer.sample_rate;
-    const int64_t hop_length = assets_->config.audio_tokenizer.hop_length;
-    if (sample_rate > 0 && hop_length > 0) {
-        const size_t estimated_audio_samples =
-            static_cast<size_t>(prompt.target_audio_tokens) * static_cast<size_t>(hop_length);
-        const size_t chunk_gap_samples = stream_text_chunks_.size() > 1
-            ? static_cast<size_t>(std::llround(0.3 * static_cast<double>(sample_rate))) *
-                static_cast<size_t>(stream_text_chunks_.size() - 1)
-            : 0;
-        stream_merged_audio_.samples.reserve(estimated_audio_samples + chunk_gap_samples);
-    }
-    stream_request_ = std::move(omni_request);
+runtime::VoiceTaskKind OmniVoiceOfflineSession::task_kind() const {
+    return task_kind_impl();
 }
 
-runtime::AudioBuffer OmniVoiceSession::synthesize_stream_chunk(size_t chunk_index) {
-    if (!stream_request_.has_value()) {
-        throw std::runtime_error("OmniVoice streaming request is not initialized");
-    }
-    OmniVoiceRequest chunk_request = *stream_request_;
-    chunk_request.text = stream_text_chunks_.at(chunk_index);
-    if (!stream_has_reference_audio_ && chunk_index > 0) {
-        if (!stream_first_chunk_reference_.has_value()) {
-            throw std::runtime_error("OmniVoice streaming missing first chunk reference");
-        }
-        chunk_request.reference_audio_tokens = *stream_first_chunk_reference_;
-        chunk_request.reference_text = stream_first_chunk_text_;
-    }
+runtime::RunMode OmniVoiceOfflineSession::run_mode() const {
+    return run_mode_impl();
+}
 
-    const auto chunk_prompt = prompt_builder_.build(chunk_request);
-    auto chunk_tokens = generator_.generate(chunk_prompt, chunk_request.generation);
-    if (mem_saver_) {
-        generator_.release_runtime_graphs();
+void OmniVoiceOfflineSession::prepare(const runtime::SessionPreparationRequest & request) {
+    prepare_impl(request);
+}
+
+runtime::TaskResult OmniVoiceOfflineSession::run(const runtime::TaskRequest & request) {
+    return run_offline_request(request);
+}
+
+OmniVoiceStreamingSession::OmniVoiceStreamingSession(
+    runtime::TaskSpec task,
+    runtime::SessionOptions options,
+    std::shared_ptr<const OmniVoiceAssets> assets)
+    : OmniVoiceSessionBase(task, std::move(options), std::move(assets)) {}
+
+std::string OmniVoiceStreamingSession::family() const {
+    return family_impl();
+}
+
+runtime::VoiceTaskKind OmniVoiceStreamingSession::task_kind() const {
+    return task_kind_impl();
+}
+
+runtime::RunMode OmniVoiceStreamingSession::run_mode() const {
+    return run_mode_impl();
+}
+
+void OmniVoiceStreamingSession::prepare(const runtime::SessionPreparationRequest & request) {
+    prepare_impl(request);
+}
+
+runtime::StreamingPolicy OmniVoiceStreamingSession::streaming_policy() const {
+    runtime::StreamingPolicy policy;
+    policy.input = runtime::StreamingInputKind::None;
+    policy.output = runtime::StreamingOutputKind::FinalResult;
+    return policy;
+}
+
+void OmniVoiceStreamingSession::start_stream(const runtime::TaskRequest & request) {
+    reset();
+    result_ = run_streaming_request(request, stream_event_sink_);
+    started_ = true;
+}
+
+void OmniVoiceStreamingSession::set_stream_event_sink(runtime::StreamEventCallback sink) {
+    stream_event_sink_ = std::move(sink);
+}
+
+std::optional<runtime::StreamEvent> OmniVoiceStreamingSession::next_stream_event() {
+    if (!started_) {
+        throw std::runtime_error("OmniVoice streaming has not been started");
     }
-    if (stream_chunk_codebooks_ == 0) {
-        stream_chunk_codebooks_ = chunk_tokens.codebooks;
-    } else if (stream_chunk_codebooks_ != chunk_tokens.codebooks) {
-        throw std::runtime_error("OmniVoice streaming chunk token codebook mismatch");
+    if (next_chunk_index_ >= result_.named_audio_outputs.size()) {
+        return std::nullopt;
     }
-    if (!stream_has_reference_audio_ && chunk_index == 0) {
-        OmniVoiceAudioTokens chunk_ref = {};
-        chunk_ref.frames = chunk_tokens.frames;
-        chunk_ref.codebooks = chunk_tokens.codebooks;
-        chunk_ref.token_ids = chunk_tokens.token_ids;
-        stream_first_chunk_reference_ = std::move(chunk_ref);
-        stream_first_chunk_text_ = stream_text_chunks_.front();
+    const auto & named = result_.named_audio_outputs[next_chunk_index_++];
+    runtime::StreamEvent event;
+    event.is_final = (next_chunk_index_ == result_.named_audio_outputs.size());
+    event.named_audio_outputs.push_back(named);
+    return event;
+}
+
+runtime::TaskResult OmniVoiceStreamingSession::finish_stream() {
+    if (!started_) {
+        throw std::runtime_error("OmniVoice streaming has not been started");
     }
-    auto chunk_audio = audio_tokenizer_.decode_audio_tokens(chunk_tokens);
-    if (mem_saver_) {
-        audio_tokenizer_.release_runtime_graphs();
-    }
-    return chunk_audio;
+    started_ = false;
+    next_chunk_index_ = 0;
+    return std::move(result_);
+}
+
+void OmniVoiceStreamingSession::reset() {
+    result_ = runtime::TaskResult{};
+    next_chunk_index_ = 0;
+    started_ = false;
+}
+
+runtime::StreamEvent OmniVoiceStreamingSession::process_audio_chunk(const runtime::AudioChunk & chunk) {
+    (void) chunk;
+    throw std::runtime_error("OmniVoice streaming does not consume audio chunks");
+}
+
+runtime::TaskResult OmniVoiceStreamingSession::finalize() {
+    return finish_stream();
 }
 
 }  // namespace engine::models::omnivoice

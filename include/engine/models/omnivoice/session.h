@@ -20,31 +20,29 @@
 
 namespace engine::models::omnivoice {
 
-class OmniVoiceSession final
-    : public runtime::RuntimeSessionBase
-    , public runtime::IOfflineVoiceTaskSession
-    , public runtime::IStreamingVoiceTaskSession {
+// Shared state + logic for both the offline and streaming sessions: model
+// runtimes, reference-prompt caching, request resolution, text-chunk
+// planning, and the per-chunk generate+decode loop (run_offline_request
+// accumulates everything into one crossfaded buffer before returning,
+// matching upstream's original single-session OmniVoiceSession::run();
+// run_streaming_request runs a similar per-chunk loop but emits each chunk
+// through a StreamEventCallback as soon as it's decoded, instead of
+// collecting silently and only supporting pull-based replay afterward).
+// Splitting this out mirrors engine::models::voxcpm2::VoxCPM2SessionBase's
+// Offline/Streaming split.
+class OmniVoiceSessionBase : public runtime::RuntimeSessionBase {
 public:
-    OmniVoiceSession(
+    OmniVoiceSessionBase(
         runtime::TaskSpec task,
         runtime::SessionOptions options,
         std::shared_ptr<const OmniVoiceAssets> assets);
 
-    std::string family() const override;
-    runtime::VoiceTaskKind task_kind() const override;
-    runtime::RunMode run_mode() const override;
-    void prepare(const runtime::SessionPreparationRequest & request) override;
-    runtime::TaskResult run(const runtime::TaskRequest & request) override;
-    runtime::StreamingPolicy streaming_policy() const override;
-    void start_stream(const runtime::TaskRequest & request) override;
-    std::optional<runtime::StreamEvent> next_stream_event() override;
-    void set_stream_event_sink(runtime::StreamEventCallback sink) override;
-    runtime::TaskResult finish_stream() override;
-    void reset() override;
-    runtime::StreamEvent process_audio_chunk(const runtime::AudioChunk & chunk) override;
-    runtime::TaskResult finalize() override;
+protected:
+    std::string family_impl() const;
+    runtime::VoiceTaskKind task_kind_impl() const;
+    runtime::RunMode run_mode_impl() const;
+    void prepare_impl(const runtime::SessionPreparationRequest & request);
 
-private:
     struct SessionDefaults {
         std::optional<runtime::Transcript> text = std::nullopt;
         std::optional<runtime::AudioBuffer> reference_audio = std::nullopt;
@@ -73,8 +71,24 @@ private:
         bool preprocess_prompt,
         bool reference_text_provided);
     std::vector<std::string> plan_text_chunks(const OmniVoiceRequest & request, const OmniVoicePrompt & prompt) const;
-    void initialize_streaming_request(const runtime::TaskRequest & request);
-    runtime::AudioBuffer synthesize_stream_chunk(size_t chunk_index);
+
+    // Non-chunked or explicitly-chunked-but-still-collected-into-one-buffer
+    // path -- byte-identical to upstream's original OmniVoiceSession::run().
+    runtime::TaskResult run_offline_request(const runtime::TaskRequest & request);
+
+    // Same per-chunk generate+decode loop as run_offline_request, but each
+    // chunk's decoded audio is pushed through stream_event_sink the moment
+    // it's ready. Two deliberate differences from the offline chunked path,
+    // both aimed at low time-to-first-audio (see session.cpp for the full
+    // reasoning): the first chunk is peeled down to a single sentence so
+    // it's ready fast, and num_inference_steps defaults lower than the
+    // offline path's. Chunk boundaries are smoothed with a fade-in on just
+    // the incoming chunk's head (apply_fade_in) rather than a full two-sided
+    // crossfade, which would require buffering one chunk to blend both
+    // sides and add a full chunk's latency to time-to-first-audio.
+    runtime::TaskResult run_streaming_request(
+        const runtime::TaskRequest & request,
+        const runtime::StreamEventCallback & stream_event_sink = nullptr);
 
     runtime::TaskSpec task_;
     std::shared_ptr<const OmniVoiceAssets> assets_;
@@ -94,15 +108,51 @@ private:
     OmniVoicePostprocessor postprocessor_;
     SessionDefaults session_defaults_;
     std::optional<ReferencePromptCacheEntry> reference_prompt_cache_;
-    std::optional<OmniVoiceRequest> stream_request_;
-    std::vector<std::string> stream_text_chunks_;
-    std::optional<OmniVoiceAudioTokens> stream_first_chunk_reference_;
-    std::string stream_first_chunk_text_;
-    runtime::AudioBuffer stream_merged_audio_;
-    size_t stream_chunk_index_ = 0;
-    int64_t stream_chunk_codebooks_ = 0;
-    bool stream_started_ = false;
-    bool stream_has_reference_audio_ = false;
+};
+
+class OmniVoiceOfflineSession final
+    : public OmniVoiceSessionBase
+    , public runtime::IOfflineVoiceTaskSession {
+public:
+    OmniVoiceOfflineSession(
+        runtime::TaskSpec task,
+        runtime::SessionOptions options,
+        std::shared_ptr<const OmniVoiceAssets> assets);
+
+    std::string family() const override;
+    runtime::VoiceTaskKind task_kind() const override;
+    runtime::RunMode run_mode() const override;
+    void prepare(const runtime::SessionPreparationRequest & request) override;
+    runtime::TaskResult run(const runtime::TaskRequest & request) override;
+};
+
+class OmniVoiceStreamingSession final
+    : public OmniVoiceSessionBase
+    , public runtime::IStreamingVoiceTaskSession {
+public:
+    OmniVoiceStreamingSession(
+        runtime::TaskSpec task,
+        runtime::SessionOptions options,
+        std::shared_ptr<const OmniVoiceAssets> assets);
+
+    std::string family() const override;
+    runtime::VoiceTaskKind task_kind() const override;
+    runtime::RunMode run_mode() const override;
+    void prepare(const runtime::SessionPreparationRequest & request) override;
+    runtime::StreamingPolicy streaming_policy() const override;
+    void start_stream(const runtime::TaskRequest & request) override;
+    std::optional<runtime::StreamEvent> next_stream_event() override;
+    void set_stream_event_sink(runtime::StreamEventCallback sink) override;
+    runtime::TaskResult finish_stream() override;
+    void reset() override;
+    runtime::StreamEvent process_audio_chunk(const runtime::AudioChunk & chunk) override;
+    runtime::TaskResult finalize() override;
+
+private:
+    runtime::TaskResult result_;
+    size_t next_chunk_index_ = 0;
+    bool started_ = false;
+    runtime::StreamEventCallback stream_event_sink_;
 };
 
 }  // namespace engine::models::omnivoice

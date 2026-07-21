@@ -115,7 +115,10 @@ const runtime::CapabilitySet & OmniVoiceLoadedModel::capabilities() const noexce
 std::unique_ptr<runtime::IVoiceTaskSession> OmniVoiceLoadedModel::create_task_session(
     const runtime::TaskSpec & task,
     const runtime::SessionOptions & options) const {
-    return std::make_unique<OmniVoiceSession>(task, options, assets_);
+    if (task.mode == runtime::RunMode::Streaming) {
+        return std::make_unique<OmniVoiceStreamingSession>(task, options, assets_);
+    }
+    return std::make_unique<OmniVoiceOfflineSession>(task, options, assets_);
 }
 
 std::unique_ptr<OmniVoiceLoadedModel> load_omnivoice_model(const std::filesystem::path & model_path) {
