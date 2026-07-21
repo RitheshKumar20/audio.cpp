@@ -259,8 +259,10 @@ Status labels:
 | `ace_step` | No | --- | --- | --- | --- |
 | `chatterbox` | No | --- | --- | --- | --- |
 | `citrinet_asr` | Done | Pass | --- | --- | Pass |
+| `fish_audio` | Done | Pass | --- | Pass | Pass |
 | `heartmula` | No | --- | --- | --- | --- |
 | `higgs_audio_stt` | Done | Pass | --- | Pass | Pass |
+| `higgs_audio_tts` | Done | Pass | --- | Pass | Pass |
 | `htdemucs` | Done | Pass | --- | Pass | Pass (drift) |
 | `hviske_asr` | Done | Pass | --- | --- | Pass |
 | `index_tts2` | Done | Pass | Pass | Pass (drift) | No (similarity drift, frame drift, text minor drift) |

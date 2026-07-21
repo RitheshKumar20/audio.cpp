@@ -11,6 +11,7 @@
 | PocketTTS | `pocket_tts` | `tts` | [PocketTTS](#pockettts) |
 | VoxCPM2 | `voxcpm2` | `tts`, `vdes` | [VoxCPM2](#voxcpm2) |
 | Higgs Audio v3 TTS | `higgs_audio_tts` | `tts` | [Higgs Audio v3 TTS](#higgs-audio-v3-tts) |
+| Fish Audio S2 Pro | `fish_audio` | `tts` | [Fish Audio S2 Pro](#fish-audio-s2-pro) |
 | IndexTTS2 | `index_tts2` | `tts` | [IndexTTS2](#indextts2) |
 | Irodori-TTS | `irodori_tts` | `tts`, `vdes` | [Irodori-TTS](#irodori-tts) |
 | OuteTTS | `outetts` | `tts`, `clon` | [OuteTTS](#outetts) |
@@ -305,7 +306,7 @@ Higgs Audio v3 TTS is a voice-clone TTS model. The current integration uses the 
 | Field | Value |
 |---|---|
 | Family | `higgs_audio_tts` |
-| Model directory | `models/higgs-audio-v3-tts-4b` |
+| Model directory | `models/Higgs-Audio-v3-TTS-4B-GGUF` when installed through the model manager |
 | Task | `tts` |
 | Modes | `offline` |
 | Languages | Model auto-handles supported languages |
@@ -313,7 +314,13 @@ Higgs Audio v3 TTS is a voice-clone TTS model. The current integration uses the 
 | Built-in voices | Not exposed |
 
 ```bash
-audiocpp_cli --task tts --family higgs_audio_tts --model models/higgs-audio-v3-tts-4b --backend cuda --text "Hello from Higgs Audio." --voice-ref assets/resources/b.wav --reference-text "Some call me nature. Others call me Mother Nature. I've been here for over 4.5 billion years. 22,500 times longer than you." --out out.wav
+audiocpp_cli --task tts --family higgs_audio_tts --model models/Higgs-Audio-v3-TTS-4B-GGUF --backend cuda --text "Hello from Higgs Audio." --voice-ref assets/resources/b.wav --reference-text "Some call me nature. Others call me Mother Nature. I've been here for over 4.5 billion years. 22,500 times longer than you." --out out.wav
+```
+
+The model manager installs the Q8_0 standalone GGUF package by default:
+
+```bash
+python3 tools/model_manager.py install --models-root models higgs_audio_v3_tts_4b
 ```
 
 | Option | Values | Default | Meaning |
@@ -326,6 +333,54 @@ audiocpp_cli --task tts --family higgs_audio_tts --model models/higgs-audio-v3-t
 | `--top-k` | integer | `30` | AR top-k sampling limit. The narrower default is less prone to premature EOC than the Python client's `50`. |
 | `--top-p` | float | `0.8` | AR nucleus sampling limit. The Python client's unfiltered equivalent is `1.0`. |
 | `--repetition-penalty` | float | `1.1` | Accepted for Python API compatibility; Higgs audio-code sampling does not consume it. |
+
+## Fish Audio S2 Pro
+
+Fish Audio S2 Pro is a TTS and reference voice-clone model. The integration uses the framework text chunker for long-form input, caches prepared reference audio in the session, and supports GGUF loading through the package spec path.
+
+| Field | Value |
+|---|---|
+| Family | `fish_audio` |
+| Model directory | `models/Fish-Audio-S2-Pro-GGUF` when installed through the model manager |
+| Task | `tts` |
+| Modes | `offline` |
+| Languages | Model auto-handles language; tested paths cover English and Chinese-style prompts |
+| Voice input | Optional reference WAV through `--voice-ref`; transcript through `--reference-text` when known |
+| Built-in voices | Not exposed |
+
+Text-to-speech:
+
+```bash
+audiocpp_cli --task tts --family fish_audio --model models/Fish-Audio-S2-Pro-GGUF --backend cuda --text "Hello from Fish Audio." --out out.wav
+```
+
+Reference voice clone:
+
+```bash
+audiocpp_cli --task tts --family fish_audio --model models/Fish-Audio-S2-Pro-GGUF --backend cuda --text "The final render is ready for review." --voice-ref assets/resources/b.wav --reference-text "Some call me nature. Others call me Mother Nature. I've been here for over 4.5 billion years. 22,500 times longer than you." --out out.wav
+```
+
+The model manager installs the Q8_0 standalone GGUF package by default:
+
+```bash
+python3 tools/model_manager.py install --models-root models fish_audio_s2_pro
+```
+
+| Option | Values | Default | Meaning |
+|---|---|---:|---|
+| `--voice-ref` | WAV path | not set | Reference speaker audio for voice cloning. |
+| `--reference-text` | text | empty string | Transcript for reference audio. |
+| `--max-new-tokens` | integer | `1024` | Maximum generated semantic tokens per chunk. `0` uses the default. |
+| `--text-chunk-size` | integer chars | `200` | Long-form chunk size. |
+| `--text-chunk-mode` | `default`, `tag_aware`, `japanese`, `endline` | `default` | Framework text chunking mode. |
+| `--temperature` | float | `0.8` | Sampling temperature. |
+| `--top-k` | integer | `30` | Top-k sampling limit. |
+| `--top-p` | float | `0.8` | Nucleus sampling limit. |
+| `--seed` | integer | random when omitted | Sampling seed for reproducible output. |
+| `--session-option fish_audio.mem_saver=true|false` | bool | `false` | Release cached AR runtime graphs after each request. |
+| `--session-option fish_audio.reference_cache_slots=<n>` | integer | `1` | Prepared reference-audio cache slots. |
+| `--session-option fish_audio.weight_type=<type>` | `native`, `f32`, `f16`, `bf16`, `q8_0` | `native` | AR matmul weight storage type. |
+| `--session-option fish_audio.codec_weight_type=<type>` | `native`, `f32`, `f16`, `q8_0` | `native` | Codec conv/matmul weight storage type. |
 
 ## IndexTTS2
 

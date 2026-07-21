@@ -51,6 +51,7 @@ audio.cpp would not be moving this quickly without generous contributors bringin
 | **ace_step** | music generation, music editing | 50+ langs | ACE-Step 1.5 Turbo and Base with acestep-5Hz-lm-1.7B |
 | **chatterbox** | TTS, voice cloning, voice conversion | ar, da, de, el, en, es, fi, fr, hi, it, ko, ms, nl, no, pl, pt, sv, sw, tr | Chatterbox with 0.5B backbone |
 | **citrinet_asr** | ASR | en | Citrinet-256 |
+| **fish_audio** | TTS, voice cloning | auto, en, zh | Fish Audio S2 Pro |
 | **heartmula** | music generation | zh, en, ja, ko, es | HeartMuLa-oss-3B with HeartCodec-oss |
 | **higgs_audio_stt** | ASR | en | Higgs Audio v3 STT |
 | **higgs_audio_tts** | TTS, voice cloning | auto | Higgs Audio v3 TTS 4B |
@@ -90,8 +91,6 @@ Community model ports live under `community_models` to make the ownership bounda
 |---|---|---|---|---|
 | **outetts** | TTS, voice cloning | en, ar, zh, nl, fr, de, it, ja, ko, lt, ru, es, pt, be, bn, ka, hu, lv, fa, pl, sw, ta, uk | Mirek [@mirek190](https://github.com/mirek190) | Llama-OuteTTS-1.0-1B TTS and voice cloning support |
 | **vietneu_tts** | TTS, voice cloning | vi, en | Phuoc [@phuocnguyen90](https://github.com/phuocnguyen90) | [VieNeu-TTS-v3-Turbo](vietneu_tts.md) TTS and voice cloning support |
-
-WIP: Fish Audio S2 Pro. Parked loaders that are not registered in this tree keep their catalog entries as `UnsupportedSource`; see [docs/maintainers/loader_and_catalog.md](docs/maintainers/loader_and_catalog.md).
 
 PocketTTS language selection is a model-load option. When the model path points at the PocketTTS root, the loader uses `english` unless you pass `--load-option language=<name>`. Kyutai's normal non-English PocketTTS releases are smaller distilled language models intended for the fast PocketTTS path. The `_24l` variants are larger 24-layer, undistilled preview models that can sound better but are slower. Kyutai currently publishes French only as `french_24l`, not as a normal distilled `french` language directory, so French is not listed as a normal PocketTTS language here.
 
@@ -374,20 +373,22 @@ Recommended top-level install packages:
 
 `Yes` means Hugging Face has a ready-to-use repo that the framework can download as-is. `No` means the tool must assemble, convert, or post-process files before the framework can use them. Packages whose loaders are not registered in this release tree are listed as **Unavailable** (see [docs/maintainers/loader_and_catalog.md](docs/maintainers/loader_and_catalog.md)).
 
+For shared audio.cpp GGUF packages, the model manager installs the default Q8_0 GGUF. Other precision variants can be downloaded directly from [audio-cpp/audio.cpp-gguf](https://huggingface.co/audio-cpp/audio.cpp-gguf); see [docs/gguf.md](docs/gguf.md) for GGUF support status.
+
 | Package id | Model | HF ready-to-use repo |
 |---|---|---|
 | `ace_step` | ACE-Step 1.5 Turbo/Base | No |
 | `chatterbox` | Chatterbox | **Yes** |
 | `citrinet_asr` | Citrinet ASR converted layout | No |
+| `fish_audio_s2_pro` | Fish Audio S2 Pro GGUF Q8_0 | **Yes** |
 | `heartmula` | HeartMuLa | No |
 | `higgs_audio_stt` | Higgs Audio STT | No |
-| `higgs_audio_v3_tts_4b` | Higgs Audio v3 TTS 4B | **Yes** |
+| `higgs_audio_v3_tts_4b` | Higgs Audio v3 TTS 4B GGUF Q8_0 | **Yes** |
 | `htdemucs` | HTDemucs | No |
 | `hviske_asr` | Hviske ASR | **Yes** |
 | `irodori_tts_500m_v3` | Irodori-TTS 500M v3 | No |
 | `irodori_tts_600m_v3_voice_design` | Irodori-TTS 600M v3 VoiceDesign | No |
 | `index_tts2` | IndexTTS-2 | **Yes** |
-| `kokoro_82m_bf16` | Kokoro 82M bf16 | Unavailable (loader not in this tree) |
 | `marblenet_vad` | MarbleNet VAD converted layout | No |
 | `mel_band_roformer` | Mel-Band RoFormer MLX | **Yes** |
 | `miocodec_25hz_44k_v2` | MioCodec 25Hz 44.1kHz v2 | No |
@@ -400,7 +401,6 @@ Recommended top-level install packages:
 | `nemotron_asr` | Nemotron ASR | **Yes** |
 | `omnivoice` | OmniVoice | **Yes** |
 | `outetts_1_0_1b` | OuteTTS 1.0 1B with IBM DAC codec and Qwen3-aligned voice cloning | No |
-| `parakeet_tdt_0_6b_v3` | Parakeet TDT 0.6B v3 | Unavailable (loader not in this tree) |
 | `pocket_tts` | PocketTTS | **Yes** |
 | `qwen3_asr_0_6b` | Qwen3 ASR 0.6B | **Yes** |
 | `qwen3_asr_1_7b_hf` | Qwen3 ASR 1.7B HF | **Yes** |
@@ -613,7 +613,6 @@ For TTS-family models, the measured one-shot RTF is:
 | model | audio len (s) | wall time (s) | RTF | x faster than real time |
 |---|---:|---:|---:|---:|
 | chatterbox | 9.72 | 2.45 | 0.252 | 3.97x |
-| kokoro tts | 10.15 | 0.64 | 0.063 | 15.90x |
 | miotts | 20.40 | 3.30 | 0.162 | 6.18x |
 | moss_tts_local | 9.60 | 0.97 | 0.101 | 9.91x |
 | omnivoice | 9.00 | 1.32 | 0.146 | 6.84x |
@@ -628,7 +627,6 @@ For long-form TTS tests, each run uses the same 6,026-character, 1,028-word inpu
 | model | audio len (s) | wall time (s) | RTF | x faster than real time |
 |---|---:|---:|---:|---:|
 | chatterbox | 391.24 | 58.57 | 0.150 | 6.68x |
-| kokoro tts | 371.17 | 7.19 | 0.019 | 51.60x |
 | index tts2 | 422.12 | 139.95 | 0.332 | 3.02x |
 | miotts | 399.16 | 66.59 | 0.167 | 5.99x |
 | moss_tts_nano | 391.20 | 43.16 | 0.110 | 9.06x |

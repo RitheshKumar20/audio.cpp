@@ -4,11 +4,6 @@
 #include "engine/framework/assets/model_package.h"
 #include "engine/framework/io/config.h"
 #include "engine/framework/io/filesystem.h"
-// Parked loaders (sources not in this release tree). When commenting these out,
-// also mark matching ModelPackage entries UnsupportedSource — see
-// docs/maintainers/loader_and_catalog.md and tools/check_loader_catalog_sync.py.
-// #include "engine/models/kokoro_tts/loader.h"
-// #include "engine/models/parakeet_tdt/loader.h"
 #include "engine/models/ace_step/loader.h"
 #include "engine/models/chatterbox/loader.h"
 #include "engine/models/citrinet_asr/session.h"
@@ -245,10 +240,6 @@ ModelRegistry make_registry_from_config(
 
 ModelRegistry make_default_registry(const std::optional<std::filesystem::path> & config_path) {
     const std::vector<std::shared_ptr<IVoiceModelLoader>> available_loaders = {
-        // Parked loaders — keep catalog packages UnsupportedSource while these stay commented.
-        // See docs/maintainers/loader_and_catalog.md.
-        // engine::models::kokoro_tts::make_kokoro_tts_loader(),
-        // engine::models::parakeet_tdt::make_parakeet_tdt_loader(),
         engine::models::ace_step::make_ace_step_loader(),
         engine::models::demucs::make_htdemucs_loader(),
         engine::models::roformer::make_mel_band_roformer_loader(),
