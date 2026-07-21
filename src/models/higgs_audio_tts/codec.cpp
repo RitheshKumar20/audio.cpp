@@ -1,4 +1,4 @@
-#include "engine/models/higgs_tts/codec.h"
+#include "engine/models/higgs_audio_tts/codec.h"
 
 #include "engine/framework/audio/conversion.h"
 #include "engine/framework/audio/resampling.h"
@@ -25,7 +25,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -1120,7 +1120,7 @@ public:
             throw std::runtime_error("failed to initialize Higgs TTS codec encode graph context");
         }
         core::ModuleBuildContext build_ctx{
-            ctx_.get(), "higgs_tts.codec.encode", runtime_->backend_type()};
+            ctx_.get(), "higgs_audio_tts.codec.encode", runtime_->backend_type()};
         acoustic_input_ = ggml_new_tensor_1d(ctx_.get(), GGML_TYPE_F32, acoustic_samples_);
         semantic_input_ = ggml_new_tensor_1d(ctx_.get(), GGML_TYPE_F32, semantic_samples_);
         ggml_set_input(acoustic_input_);
@@ -1147,7 +1147,7 @@ public:
             }
             throw std::runtime_error("failed to allocate Higgs TTS codec encode graph");
         }
-        engine::debug::timing_log_scalar("higgs_tts.codec.encode.graph.build_ms",
+        engine::debug::timing_log_scalar("higgs_audio_tts.codec.encode.graph.build_ms",
                                          engine::debug::elapsed_ms(build_start, Clock::now()));
     }
 
@@ -1177,12 +1177,12 @@ public:
             acoustic_input_, acoustic.data(), 0, acoustic.size() * sizeof(float));
         ggml_backend_tensor_set(
             semantic_input_, semantic.data(), 0, semantic.size() * sizeof(float));
-        engine::debug::timing_log_scalar("higgs_tts.codec.encode_input_upload_ms",
+        engine::debug::timing_log_scalar("higgs_audio_tts.codec.encode_input_upload_ms",
                                          engine::debug::elapsed_ms(timing_start, Clock::now()));
         core::set_backend_threads(runtime_->backend(), runtime_->threads());
         timing_start = Clock::now();
         const ggml_status status = engine::core::compute_backend_graph(runtime_->backend(), graph_);
-        engine::debug::timing_log_scalar("higgs_tts.codec.encode.graph.compute_ms",
+        engine::debug::timing_log_scalar("higgs_audio_tts.codec.encode.graph.compute_ms",
                                          engine::debug::elapsed_ms(timing_start, Clock::now()));
         if (status != GGML_STATUS_SUCCESS) {
             throw std::runtime_error("Higgs TTS codec encode graph compute failed");
@@ -1203,7 +1203,7 @@ public:
                     codebook_codes[static_cast<size_t>(frame)];
             }
         }
-        engine::debug::timing_log_scalar("higgs_tts.codec.encode_output_read_ms",
+        engine::debug::timing_log_scalar("higgs_audio_tts.codec.encode_output_read_ms",
                                          engine::debug::elapsed_ms(timing_start, Clock::now()));
         return out;
     }
@@ -1238,7 +1238,7 @@ public:
             throw std::runtime_error("failed to initialize Higgs TTS codec decode graph context");
         }
         core::ModuleBuildContext build_ctx{
-            ctx_.get(), "higgs_tts.codec.decode", runtime_->backend_type()};
+            ctx_.get(), "higgs_audio_tts.codec.decode", runtime_->backend_type()};
         codes_ = ggml_new_tensor_2d(ctx_.get(), GGML_TYPE_I32, kCodecCodebooks, capacity_frames_);
         frame_mask_ = ggml_new_tensor_2d(ctx_.get(), GGML_TYPE_F32, 1, capacity_frames_);
         ggml_set_input(codes_);
@@ -1269,7 +1269,7 @@ public:
         }
         code_scratch_.assign(static_cast<size_t>(capacity_frames_ * kCodecCodebooks), 0);
         frame_mask_values_.assign(static_cast<size_t>(capacity_frames_), 0.0F);
-        engine::debug::timing_log_scalar("higgs_tts.codec.decode.graph.build_ms",
+        engine::debug::timing_log_scalar("higgs_audio_tts.codec.decode.graph.build_ms",
                                          engine::debug::elapsed_ms(build_start, Clock::now()));
     }
 
@@ -1314,12 +1314,12 @@ public:
             codes_, code_scratch_.data(), 0, code_scratch_.size() * sizeof(int32_t));
         ggml_backend_tensor_set(
             frame_mask_, frame_mask_values_.data(), 0, frame_mask_values_.size() * sizeof(float));
-        engine::debug::timing_log_scalar("higgs_tts.codec.decode_input_upload_ms",
+        engine::debug::timing_log_scalar("higgs_audio_tts.codec.decode_input_upload_ms",
                                          engine::debug::elapsed_ms(timing_start, Clock::now()));
         core::set_backend_threads(runtime_->backend(), runtime_->threads());
         timing_start = Clock::now();
         const ggml_status status = engine::core::compute_backend_graph(runtime_->backend(), graph_);
-        engine::debug::timing_log_scalar("higgs_tts.codec.decode.graph.compute_ms",
+        engine::debug::timing_log_scalar("higgs_audio_tts.codec.decode.graph.compute_ms",
                                          engine::debug::elapsed_ms(timing_start, Clock::now()));
         if (status != GGML_STATUS_SUCCESS) {
             throw std::runtime_error("Higgs TTS codec decode graph compute failed");
@@ -1334,7 +1334,7 @@ public:
         out.values.resize(static_cast<size_t>(out.samples));
         timing_start = Clock::now();
         ggml_backend_tensor_get(output_, out.values.data(), 0, out.values.size() * sizeof(float));
-        engine::debug::timing_log_scalar("higgs_tts.codec.decode_output_read_ms",
+        engine::debug::timing_log_scalar("higgs_audio_tts.codec.decode_output_read_ms",
                                          engine::debug::elapsed_ms(timing_start, Clock::now()));
         return out;
     }
@@ -1365,7 +1365,7 @@ HiggsCodecWeights load_higgs_codec_decode_weights(const HiggsAssets & assets,
     }
     HiggsCodecWeights weights;
     weights.store = std::make_shared<core::BackendWeightStore>(
-        backend, backend_type, "higgs_tts.codec.weights", weight_context_bytes);
+        backend, backend_type, "higgs_audio_tts.codec.weights", weight_context_bytes);
     const auto & source = *assets.weights;
     load_hubert_semantic_model_weights(weights, source, weight_storage_type);
     weights.quantizers.reserve(kCodecCodebooks);
@@ -1527,11 +1527,11 @@ HiggsCodecRuntime::encode_reference(const runtime::AudioBuffer & audio) const {
                                                     static_cast<int64_t>(semantic_16k.size()),
                                                     frames);
     }
-    engine::debug::trace_log_scalar("higgs_tts.codec.encode.input_frames", frames);
-    engine::debug::trace_log_f32("higgs_tts.codec.encode.input_acoustic_24k",
+    engine::debug::trace_log_scalar("higgs_audio_tts.codec.encode.input_frames", frames);
+    engine::debug::trace_log_f32("higgs_audio_tts.codec.encode.input_acoustic_24k",
                                  {static_cast<int64_t>(acoustic_24k.size())},
                                  acoustic_24k);
-    engine::debug::trace_log_f32("higgs_tts.codec.encode.input_semantic_16k",
+    engine::debug::trace_log_f32("higgs_audio_tts.codec.encode.input_semantic_16k",
                                  {static_cast<int64_t>(semantic_16k.size())},
                                  semantic_16k);
     return encode_graph_->run(acoustic_24k, semantic_16k, frames);
@@ -1549,9 +1549,9 @@ HiggsCodecDecodeOutput HiggsCodecRuntime::decode_codes(const std::vector<int32_t
     if (static_cast<int64_t>(codes.size()) != frames * codebooks) {
         throw std::runtime_error("Higgs TTS codec decode code count mismatch");
     }
-    engine::debug::trace_log_scalar("higgs_tts.codec.decode.input_frames", frames);
-    engine::debug::trace_log_scalar("higgs_tts.codec.decode.input_codebooks", codebooks);
-    engine::debug::trace_log_i32("higgs_tts.codec.decode.input_codes",
+    engine::debug::trace_log_scalar("higgs_audio_tts.codec.decode.input_frames", frames);
+    engine::debug::trace_log_scalar("higgs_audio_tts.codec.decode.input_codebooks", codebooks);
+    engine::debug::trace_log_i32("higgs_audio_tts.codec.decode.input_codes",
                                  {frames, codebooks},
                                  codes);
 
@@ -1632,4 +1632,4 @@ void HiggsCodecRuntime::release_runtime_graphs() {
     decode_graph_.reset();
 }
 
-} // namespace engine::models::higgs_tts
+} // namespace engine::models::higgs_audio_tts

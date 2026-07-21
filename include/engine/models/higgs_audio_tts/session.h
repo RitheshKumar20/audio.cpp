@@ -2,10 +2,10 @@
 
 #include "engine/framework/runtime/cache_slots.h"
 #include "engine/framework/runtime/session_base.h"
-#include "engine/models/higgs_tts/assets.h"
-#include "engine/models/higgs_tts/ar.h"
-#include "engine/models/higgs_tts/codec.h"
-#include "engine/models/higgs_tts/generator.h"
+#include "engine/models/higgs_audio_tts/assets.h"
+#include "engine/models/higgs_audio_tts/ar.h"
+#include "engine/models/higgs_audio_tts/codec.h"
+#include "engine/models/higgs_audio_tts/generator.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -13,7 +13,7 @@
 #include <optional>
 #include <string>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 
 class HiggsTTSSession final
     : public runtime::RuntimeSessionBase
@@ -76,4 +76,4 @@ private:
     std::optional<ReferenceCacheEntry> uncached_reference_;
 };
 
-}  // namespace engine::models::higgs_tts
+}  // namespace engine::models::higgs_audio_tts

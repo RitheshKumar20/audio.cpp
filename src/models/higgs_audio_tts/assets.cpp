@@ -1,4 +1,4 @@
-#include "engine/models/higgs_tts/assets.h"
+#include "engine/models/higgs_audio_tts/assets.h"
 
 #include "engine/framework/assets/model_package.h"
 #include "engine/framework/io/config.h"
@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 namespace json = engine::io::json;
 namespace {
 
@@ -161,11 +161,11 @@ std::shared_ptr<const HiggsAssets> load_higgs_assets(const std::filesystem::path
     HiggsAssets assets;
     assets.resources = assets::load_resource_bundle_from_package_spec(
         model_path,
-        assets::default_model_package_spec_path("higgs_tts"));
+        assets::default_model_package_spec_path("higgs_audio_tts"));
     assets.config = parse_config(assets.resources);
     assets.weights = assets.resources.open_tensor_source("weights");
     validate_weight_anchors(assets);
     return std::make_shared<HiggsAssets>(std::move(assets));
 }
 
-}  // namespace engine::models::higgs_tts
+}  // namespace engine::models::higgs_audio_tts

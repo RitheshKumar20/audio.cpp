@@ -11,7 +11,7 @@ namespace engine::assets {
 class TensorSource;
 }
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 
 struct HiggsTextConfig {
     std::string model_type;
@@ -62,4 +62,4 @@ struct HiggsAssets {
 
 std::shared_ptr<const HiggsAssets> load_higgs_assets(const std::filesystem::path & model_path);
 
-}  // namespace engine::models::higgs_tts
+}  // namespace engine::models::higgs_audio_tts

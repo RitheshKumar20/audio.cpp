@@ -1,12 +1,12 @@
 #pragma once
 
 #include "engine/framework/runtime/model.h"
-#include "engine/models/higgs_tts/assets.h"
+#include "engine/models/higgs_audio_tts/assets.h"
 
 #include <filesystem>
 #include <memory>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 
 class HiggsTTSLoadedModel final : public runtime::ILoadedVoiceModel {
 public:
@@ -27,7 +27,7 @@ private:
     std::shared_ptr<const HiggsAssets> assets_;
 };
 
-std::unique_ptr<HiggsTTSLoadedModel> load_higgs_tts_model(const std::filesystem::path & model_path);
-std::shared_ptr<runtime::IVoiceModelLoader> make_higgs_tts_loader();
+std::unique_ptr<HiggsTTSLoadedModel> load_higgs_audio_tts_model(const std::filesystem::path & model_path);
+std::shared_ptr<runtime::IVoiceModelLoader> make_higgs_audio_tts_loader();
 
-}  // namespace engine::models::higgs_tts
+}  // namespace engine::models::higgs_audio_tts

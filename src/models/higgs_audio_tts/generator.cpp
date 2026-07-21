@@ -1,10 +1,10 @@
-#include "engine/models/higgs_tts/generator.h"
+#include "engine/models/higgs_audio_tts/generator.h"
 
 #include "engine/framework/debug/profiler.h"
 #include "engine/framework/debug/trace.h"
 #include "engine/framework/runtime/options.h"
 #include "engine/framework/sampling/torch_random.h"
-#include "engine/models/higgs_tts/codebooks.h"
+#include "engine/models/higgs_audio_tts/codebooks.h"
 
 #include <algorithm>
 #include <chrono>
@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -255,28 +255,28 @@ HiggsGenerationResult HiggsGenerator::generate(const HiggsGenerationRequest & re
             "Higgs TTS generation got reference codebooks without reference codes");
     }
     validate_generation_options(request.options);
-    engine::debug::trace_log_scalar("higgs_tts.request.text", request.text);
-    engine::debug::trace_log_scalar("higgs_tts.request.reference_text", request.reference_text);
-    engine::debug::trace_log_scalar("higgs_tts.request.text_chars", request.text.size());
-    engine::debug::trace_log_scalar("higgs_tts.request.reference_text_chars",
+    engine::debug::trace_log_scalar("higgs_audio_tts.request.text", request.text);
+    engine::debug::trace_log_scalar("higgs_audio_tts.request.reference_text", request.reference_text);
+    engine::debug::trace_log_scalar("higgs_audio_tts.request.text_chars", request.text.size());
+    engine::debug::trace_log_scalar("higgs_audio_tts.request.reference_text_chars",
                                     request.reference_text.size());
-    engine::debug::trace_log_scalar("higgs_tts.request.max_tokens",
+    engine::debug::trace_log_scalar("higgs_audio_tts.request.max_tokens",
                                     request.options.max_tokens);
-    engine::debug::trace_log_scalar("higgs_tts.request.temperature", request.options.temperature);
-    engine::debug::trace_log_scalar("higgs_tts.request.top_p",
+    engine::debug::trace_log_scalar("higgs_audio_tts.request.temperature", request.options.temperature);
+    engine::debug::trace_log_scalar("higgs_audio_tts.request.top_p",
                                     request.options.top_p.has_value() ?
                                         std::to_string(*request.options.top_p) : "none");
-    engine::debug::trace_log_scalar("higgs_tts.request.top_k",
+    engine::debug::trace_log_scalar("higgs_audio_tts.request.top_k",
                                     request.options.top_k.has_value() ?
                                         std::to_string(*request.options.top_k) : "none");
-    engine::debug::trace_log_scalar("higgs_tts.request.repetition_penalty",
+    engine::debug::trace_log_scalar("higgs_audio_tts.request.repetition_penalty",
                                     request.options.repetition_penalty);
-    engine::debug::trace_log_scalar("higgs_tts.request.has_seed", request.options.seed.has_value());
-    engine::debug::trace_log_scalar("higgs_tts.request.seed",
+    engine::debug::trace_log_scalar("higgs_audio_tts.request.has_seed", request.options.seed.has_value());
+    engine::debug::trace_log_scalar("higgs_audio_tts.request.seed",
                                     request.options.seed.has_value() ?
                                         std::to_string(*request.options.seed) : "none");
     if (has_reference) {
-        engine::debug::trace_log_i32("higgs_tts.request.reference_codes",
+        engine::debug::trace_log_i32("higgs_audio_tts.request.reference_codes",
                                      {request.reference_frames, request.reference_codebooks},
                                      request.reference_codes);
     }
@@ -306,36 +306,36 @@ HiggsGenerationResult HiggsGenerator::generate(const HiggsGenerationRequest & re
         request.reference_text,
         delayed_reference_frames,
     });
-    engine::debug::trace_log_scalar("higgs_tts.prompt.text_tokens", prompt.text_ids.size());
-    engine::debug::trace_log_i32("higgs_tts.prompt.text_ids",
+    engine::debug::trace_log_scalar("higgs_audio_tts.prompt.text_tokens", prompt.text_ids.size());
+    engine::debug::trace_log_i32("higgs_audio_tts.prompt.text_ids",
                                  {static_cast<int64_t>(prompt.text_ids.size())},
                                  prompt.text_ids);
-    engine::debug::trace_log_scalar("higgs_tts.prompt.reference_text_tokens",
+    engine::debug::trace_log_scalar("higgs_audio_tts.prompt.reference_text_tokens",
                                     prompt.reference_text_ids.size());
-    engine::debug::trace_log_i32("higgs_tts.prompt.reference_text_ids",
+    engine::debug::trace_log_i32("higgs_audio_tts.prompt.reference_text_ids",
                                  {static_cast<int64_t>(prompt.reference_text_ids.size())},
                                  prompt.reference_text_ids);
     const auto prepared =
         make_prepared_prompt(prompt, *delayed_reference_codes, delayed_reference_frames, config);
-    engine::debug::trace_log_scalar("higgs_tts.prompt.tokens", prepared.prompt.token_ids.size());
-    engine::debug::trace_log_i32("higgs_tts.prompt.token_ids",
+    engine::debug::trace_log_scalar("higgs_audio_tts.prompt.tokens", prepared.prompt.token_ids.size());
+    engine::debug::trace_log_i32("higgs_audio_tts.prompt.token_ids",
                                  {static_cast<int64_t>(prepared.prompt.token_ids.size())},
                                  prepared.prompt.token_ids);
-    engine::debug::trace_log_scalar("higgs_tts.prompt.delayed_reference_rows",
+    engine::debug::trace_log_scalar("higgs_audio_tts.prompt.delayed_reference_rows",
                                     delayed_reference_frames);
-    engine::debug::trace_log_i32("higgs_tts.prompt.delayed_reference_codes",
+    engine::debug::trace_log_i32("higgs_audio_tts.prompt.delayed_reference_codes",
                                  {delayed_reference_frames, config.audio.num_codebooks},
                                  *delayed_reference_codes);
-    engine::debug::trace_log_i32("higgs_tts.ar.prefill.text_tokens",
+    engine::debug::trace_log_i32("higgs_audio_tts.ar.prefill.text_tokens",
                                  {prepared.ar_input.steps},
                                  prepared.ar_input.text_tokens);
-    engine::debug::trace_log_i32("higgs_tts.ar.prefill.fused_code_ids",
+    engine::debug::trace_log_i32("higgs_audio_tts.ar.prefill.fused_code_ids",
                                  {prepared.ar_input.steps, config.audio.num_codebooks},
                                  prepared.ar_input.fused_code_ids);
-    engine::debug::trace_log_f32("higgs_tts.ar.prefill.text_gate",
+    engine::debug::trace_log_f32("higgs_audio_tts.ar.prefill.text_gate",
                                  {prepared.ar_input.steps},
                                  prepared.ar_input.text_gate);
-    engine::debug::trace_log_f32("higgs_tts.ar.prefill.code_gate",
+    engine::debug::trace_log_f32("higgs_audio_tts.ar.prefill.code_gate",
                                  {prepared.ar_input.steps},
                                  prepared.ar_input.code_gate);
     const int64_t prompt_steps = prepared.ar_input.steps;
@@ -351,8 +351,8 @@ HiggsGenerationResult HiggsGenerator::generate(const HiggsGenerationRequest & re
         std::equal(matching_reference_cache->prefix_tokens.begin(),
                    matching_reference_cache->prefix_tokens.end(),
                    prepared.prompt.token_ids.begin());
-    engine::debug::trace_log_scalar("higgs_tts.generator.reference_prefix_cache_hit", reference_cache_hit);
-    engine::debug::trace_log_scalar("higgs_tts.generator.reference_prefix_steps", prepared.prefix_steps);
+    engine::debug::trace_log_scalar("higgs_audio_tts.generator.reference_prefix_cache_hit", reference_cache_hit);
+    engine::debug::trace_log_scalar("higgs_audio_tts.generator.reference_prefix_steps", prepared.prefix_steps);
     const int64_t max_cache_steps = prompt_steps + request.options.max_tokens;
     const int64_t initial_cache_steps = bucketed_initial_cache_steps(prompt_steps, request.options.max_tokens);
     const bool cache_rebuild =
@@ -372,11 +372,11 @@ HiggsGenerationResult HiggsGenerator::generate(const HiggsGenerationRequest & re
     } else {
         ar_kv_cache_->reset();
     }
-    engine::debug::trace_log_scalar("higgs_tts.generator.reference_kv_cache_hit", reference_kv_cache_hit);
-    engine::debug::trace_log_scalar("higgs_tts.generator.prefill_start_step", prefill_start_step);
-    engine::debug::trace_log_scalar("higgs_tts.generator.prefill_run_steps", prompt_steps - prefill_start_step);
-    engine::debug::trace_log_scalar("higgs_tts.generator.kv_cache_steps", initial_cache_steps);
-    engine::debug::trace_log_scalar("higgs_tts.generator.kv_cache_rebuild", cache_rebuild);
+    engine::debug::trace_log_scalar("higgs_audio_tts.generator.reference_kv_cache_hit", reference_kv_cache_hit);
+    engine::debug::trace_log_scalar("higgs_audio_tts.generator.prefill_start_step", prefill_start_step);
+    engine::debug::trace_log_scalar("higgs_audio_tts.generator.prefill_run_steps", prompt_steps - prefill_start_step);
+    engine::debug::trace_log_scalar("higgs_audio_tts.generator.kv_cache_steps", initial_cache_steps);
+    engine::debug::trace_log_scalar("higgs_audio_tts.generator.kv_cache_rebuild", cache_rebuild);
     if (prefill_graph_ == nullptr ||
         !prefill_graph_->matches(*ar_, prompt_steps, prefill_start_step)) {
         prefill_graph_.reset();
@@ -395,9 +395,9 @@ HiggsGenerationResult HiggsGenerator::generate(const HiggsGenerationRequest & re
         decode_graph_->import_prefill_state(prefill_output.kv_state);
     }
     HiggsARDecodeOutput prefill = std::move(prefill_output.output);
-    engine::debug::timing_log_scalar("higgs_tts.generator.prefill_ms",
+    engine::debug::timing_log_scalar("higgs_audio_tts.generator.prefill_ms",
                                      engine::debug::elapsed_ms(prefill_start, Clock::now()));
-    engine::debug::trace_log_f32("higgs_tts.sampler.prefill_logits",
+    engine::debug::trace_log_f32("higgs_audio_tts.sampler.prefill_logits",
                                  {config.audio.num_codebooks, config.audio.vocab_size},
                                  prefill.codebook_logits);
 
@@ -415,18 +415,18 @@ HiggsGenerationResult HiggsGenerator::generate(const HiggsGenerationRequest & re
         cuda_sampling_policy_ = engine::sampling::resolve_torch_cuda_sampling_policy(
             ar_->backend_type(),
             ar_->device(),
-            "higgs_tts.cuda_sampling_policy",
+            "higgs_audio_tts.cuda_sampling_policy",
             "Higgs TTS",
             engine::sampling::TorchCudaSamplingPolicyFailureMode::StrictCuda);
     }
     sampling.cuda_policy = *cuda_sampling_policy_;
-    engine::debug::trace_log_scalar("higgs_tts.sampler.temperature", sampling.temperature);
-    engine::debug::trace_log_scalar("higgs_tts.sampler.has_seed", sampling.has_seed);
-    engine::debug::trace_log_scalar("higgs_tts.sampler.seed", sampling.seed);
-    engine::debug::trace_log_scalar("higgs_tts.sampler.top_p",
+    engine::debug::trace_log_scalar("higgs_audio_tts.sampler.temperature", sampling.temperature);
+    engine::debug::trace_log_scalar("higgs_audio_tts.sampler.has_seed", sampling.has_seed);
+    engine::debug::trace_log_scalar("higgs_audio_tts.sampler.seed", sampling.seed);
+    engine::debug::trace_log_scalar("higgs_audio_tts.sampler.top_p",
                                     sampling.top_p.has_value() ? std::to_string(*sampling.top_p)
                                                                : "none");
-    engine::debug::trace_log_scalar("higgs_tts.sampler.top_k",
+    engine::debug::trace_log_scalar("higgs_audio_tts.sampler.top_k",
                                     sampling.top_k.has_value() ? std::to_string(*sampling.top_k)
                                                                : "none");
     HiggsGenerationResult result;
@@ -436,7 +436,7 @@ HiggsGenerationResult HiggsGenerator::generate(const HiggsGenerationRequest & re
                                               static_cast<int64_t>(prefill.codebook_logits.size()),
                                               state,
                                               sampling);
-    engine::debug::trace_log_i32("higgs_tts.sampler.first_output_codes",
+    engine::debug::trace_log_i32("higgs_audio_tts.sampler.first_output_codes",
                                  {static_cast<int64_t>(first_sampled.size())},
                                  first_sampled);
     result.delayed_codes.insert(
@@ -464,7 +464,7 @@ HiggsGenerationResult HiggsGenerator::generate(const HiggsGenerationRequest & re
             decode_graph_.reset();
             ar_kv_cache_ = std::make_unique<HiggsARKVCache>(ar_, grown_cache_steps);
             ar_kv_cache_->import_state(kv_state);
-            engine::debug::trace_log_scalar("higgs_tts.generator.kv_cache_grown_steps", grown_cache_steps);
+            engine::debug::trace_log_scalar("higgs_audio_tts.generator.kv_cache_grown_steps", grown_cache_steps);
             decode_graph_ = std::make_unique<HiggsARDecodeGraph>(
                 ar_, ar_kv_cache_->cache_steps(), *ar_kv_cache_, ar_decode_graph_arena_bytes_);
             decode_graph_->begin_decode_run();
@@ -475,7 +475,7 @@ HiggsGenerationResult HiggsGenerator::generate(const HiggsGenerationRequest & re
         const auto step_start = Clock::now();
         decode_graph_->run_step_into(input, decoded, !logged_decode_step_timing);
         if (!logged_decode_step_timing) {
-            engine::debug::timing_log_scalar("higgs_tts.generator.decode.step0.ar_ms",
+            engine::debug::timing_log_scalar("higgs_audio_tts.generator.decode.step0.ar_ms",
                                              engine::debug::elapsed_ms(step_start, Clock::now()));
         }
         const auto sample_start = Clock::now();
@@ -485,7 +485,7 @@ HiggsGenerationResult HiggsGenerator::generate(const HiggsGenerationRequest & re
                                             sampling);
         sampler_total_ms += engine::debug::elapsed_ms(sample_start, Clock::now());
         if (!logged_decode_step_timing) {
-            engine::debug::timing_log_scalar("higgs_tts.generator.decode.step0.sampler_ms",
+            engine::debug::timing_log_scalar("higgs_audio_tts.generator.decode.step0.sampler_ms",
                                              sampler_total_ms);
             logged_decode_step_timing = true;
         }
@@ -495,13 +495,13 @@ HiggsGenerationResult HiggsGenerator::generate(const HiggsGenerationRequest & re
         }
     }
     decode_timing_total.add(decode_graph_->timing());
-    engine::debug::timing_log_scalar("higgs_tts.ar.decode.steps", decode_timing_total.steps);
-    engine::debug::timing_log_scalar("higgs_tts.ar.decode.input_upload_ms", decode_timing_total.input_upload_ms);
-    engine::debug::timing_log_scalar("higgs_tts.ar.decode.mask_upload_ms", decode_timing_total.mask_upload_ms);
-    engine::debug::timing_log_scalar("higgs_tts.ar.decode.graph.compute_ms", decode_timing_total.graph_compute_ms);
-    engine::debug::timing_log_scalar("higgs_tts.ar.decode.output_read_ms", decode_timing_total.output_read_ms);
-    engine::debug::timing_log_scalar("higgs_tts.generator.decode.sampler_ms", sampler_total_ms);
-    engine::debug::timing_log_scalar("higgs_tts.generator.decode_ms",
+    engine::debug::timing_log_scalar("higgs_audio_tts.ar.decode.steps", decode_timing_total.steps);
+    engine::debug::timing_log_scalar("higgs_audio_tts.ar.decode.input_upload_ms", decode_timing_total.input_upload_ms);
+    engine::debug::timing_log_scalar("higgs_audio_tts.ar.decode.mask_upload_ms", decode_timing_total.mask_upload_ms);
+    engine::debug::timing_log_scalar("higgs_audio_tts.ar.decode.graph.compute_ms", decode_timing_total.graph_compute_ms);
+    engine::debug::timing_log_scalar("higgs_audio_tts.ar.decode.output_read_ms", decode_timing_total.output_read_ms);
+    engine::debug::timing_log_scalar("higgs_audio_tts.generator.decode.sampler_ms", sampler_total_ms);
+    engine::debug::timing_log_scalar("higgs_audio_tts.generator.decode_ms",
                                      engine::debug::elapsed_ms(decode_start, Clock::now()));
     if (!state.generation_done) {
         throw std::runtime_error("Higgs TTS generation reached max_tokens before EOC");
@@ -510,11 +510,11 @@ HiggsGenerationResult HiggsGenerator::generate(const HiggsGenerationRequest & re
     result.raw_codes = reverse_higgs_delay_pattern(
         result.delayed_codes, result.delayed_frames, config.audio.num_codebooks);
     result.raw_frames = result.delayed_frames - (config.audio.num_codebooks - 1);
-    engine::debug::trace_log_i32("higgs_tts.generator.delayed_codes",
+    engine::debug::trace_log_i32("higgs_audio_tts.generator.delayed_codes",
                                  {result.delayed_frames, config.audio.num_codebooks},
                                  result.delayed_codes);
     const int64_t delayed_head_rows = std::min<int64_t>(result.delayed_frames, 8);
-    engine::debug::trace_log_i32("higgs_tts.generator.delayed_codes_head8",
+    engine::debug::trace_log_i32("higgs_audio_tts.generator.delayed_codes_head8",
                                  {delayed_head_rows, config.audio.num_codebooks},
                                  std::vector<int32_t>(
                                      result.delayed_codes.begin(),
@@ -531,19 +531,19 @@ HiggsGenerationResult HiggsGenerator::generate(const HiggsGenerationRequest & re
             code = 0;
         }
     }
-    engine::debug::trace_log_i32("higgs_tts.generator.raw_codes_for_codec",
+    engine::debug::trace_log_i32("higgs_audio_tts.generator.raw_codes_for_codec",
                                  {result.raw_frames, config.audio.num_codebooks},
                                  result.raw_codes);
     const auto codec_start = Clock::now();
     result.audio =
         codec_->decode_codes(result.raw_codes, result.raw_frames, config.audio.num_codebooks);
-    engine::debug::trace_log_f32("higgs_tts.codec.decode.output_audio",
+    engine::debug::trace_log_f32("higgs_audio_tts.codec.decode.output_audio",
                                  {result.audio.samples},
                                  result.audio.values);
-    engine::debug::timing_log_scalar("higgs_tts.generator.codec_decode_ms",
+    engine::debug::timing_log_scalar("higgs_audio_tts.generator.codec_decode_ms",
                                      engine::debug::elapsed_ms(codec_start, Clock::now()));
     codec_->release_runtime_graphs();
     return result;
 }
 
-} // namespace engine::models::higgs_tts
+} // namespace engine::models::higgs_audio_tts

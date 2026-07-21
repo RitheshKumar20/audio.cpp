@@ -53,6 +53,7 @@ audio.cpp would not be moving this quickly without generous contributors bringin
 | **citrinet_asr** | ASR | en | Citrinet-256 |
 | **heartmula** | music generation | zh, en, ja, ko, es | HeartMuLa-oss-3B with HeartCodec-oss |
 | **higgs_audio_stt** | ASR | en | Higgs Audio v3 STT |
+| **higgs_audio_tts** | TTS, voice cloning | auto | Higgs Audio v3 TTS 4B |
 | **htdemucs** | source separation | lang agnostic | HTDemucs, HTDemucs_ft |
 | **hviske_asr** | ASR | da | Hviske v5.3 |
 | **marblenet_vad** | VAD | lang agnostic | MarbleNet VAD |
@@ -89,7 +90,7 @@ Community model ports live under `community_models` to make the ownership bounda
 |---|---|---|---|---|
 | **outetts** | TTS, voice cloning | en, ar, zh, nl, fr, de, it, ja, ko, lt, ru, es, pt, be, bn, ka, hu, lv, fa, pl, sw, ta, uk | Mirek [@mirek190](https://github.com/mirek190) | Llama-OuteTTS-1.0-1B TTS and voice cloning support |
 
-WIP: Higgs Audio v3 TTS 4B, Fish Audio S2 Pro.
+WIP: Fish Audio S2 Pro.
 
 PocketTTS language selection is a model-load option. When the model path points at the PocketTTS root, the loader uses `english` unless you pass `--load-option language=<name>`. Kyutai's normal non-English PocketTTS releases are smaller distilled language models intended for the fast PocketTTS path. The `_24l` variants are larger 24-layer, undistilled preview models that can sound better but are slower. Kyutai currently publishes French only as `french_24l`, not as a normal distilled `french` language directory, so French is not listed as a normal PocketTTS language here.
 

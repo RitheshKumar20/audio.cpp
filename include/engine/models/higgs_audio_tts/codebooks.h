@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 
 constexpr int32_t kHiggsBocId = 1024;
 constexpr int32_t kHiggsEocId = 1025;
@@ -21,4 +21,4 @@ std::vector<int32_t> reverse_higgs_delay_pattern(
     int64_t delayed_frames,
     int64_t codebooks);
 
-}  // namespace engine::models::higgs_tts
+}  // namespace engine::models::higgs_audio_tts

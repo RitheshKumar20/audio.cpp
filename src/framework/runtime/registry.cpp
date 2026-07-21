@@ -14,7 +14,7 @@
 #include "engine/models/fish_audio/loader.h"
 #include "engine/models/heartmula/loader.h"
 #include "engine/models/higgs_audio_stt/loader.h"
-#include "engine/models/higgs_tts/loader.h"
+#include "engine/models/higgs_audio_tts/loader.h"
 #include "engine/models/hviske_asr/loader.h"
 #include "engine/models/index_tts2/loader.h"
 #include "engine/models/irodori_tts/loader.h"
@@ -261,7 +261,7 @@ ModelRegistry make_default_registry(const std::optional<std::filesystem::path> &
         engine::models::fish_audio::make_fish_audio_loader(),
         engine::models::heartmula::make_heartmula_loader(),
         engine::models::higgs_audio_stt::make_higgs_audio_stt_loader(),
-        engine::models::higgs_tts::make_higgs_tts_loader(),
+        engine::models::higgs_audio_tts::make_higgs_audio_tts_loader(),
         engine::models::hviske_asr::make_hviske_asr_loader(),
         engine::models::irodori_tts::make_irodori_tts_loader(),
         engine::models::nemotron_asr::make_nemotron_asr_loader(),

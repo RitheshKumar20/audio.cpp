@@ -35,7 +35,7 @@ DEFAULT_TEXT = (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Python reference Higgs Audio v3 TTS warmbench.")
-    parser.add_argument("--family", default="higgs_tts")
+    parser.add_argument("--family", default="higgs_audio_tts")
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--reference-root", type=Path, default=REFERENCE_ROOT)
     parser.add_argument("--backend", choices=("cuda",), default="cuda")
@@ -57,8 +57,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=18180)
     parser.add_argument("--server-timeout-sec", type=float, default=300.0)
     parser.add_argument("--output-dir", type=Path, default=None)
-    parser.add_argument("--audio-out", type=Path, default=Path("higgs_tts_python_audio.wav"))
-    parser.add_argument("--timing-file", type=Path, default=Path("higgs_tts_python_timing.log"))
+    parser.add_argument("--audio-out", type=Path, default=Path("higgs_audio_tts_python_audio.wav"))
+    parser.add_argument("--timing-file", type=Path, default=Path("higgs_audio_tts_python_timing.log"))
     parser.add_argument("--summary-file", type=Path, default=None)
     return parser.parse_args()
 
@@ -322,9 +322,9 @@ def main() -> int:
         raise RuntimeError("Higgs TTS warmbench request sequence is empty")
     output_dir = args.output_dir or args.audio_out.parent
     output_dir.mkdir(parents=True, exist_ok=True)
-    timing_lines = ["higgs_tts.python.model_load_excluded=1"]
+    timing_lines = ["higgs_audio_tts.python.model_load_excluded=1"]
     server = start_server(args)
-    timing_lines.append(f"higgs_tts.python.server_pid={server.pid}")
+    timing_lines.append(f"higgs_audio_tts.python.server_pid={server.pid}")
     try:
         wait_for_server(args, server)
         for _ in range(max(0, args.warmup)):
@@ -338,8 +338,8 @@ def main() -> int:
                 summary, wall_ms = run_request(args, request, audio_path)
                 total_ms += wall_ms
             average_ms = total_ms / float(max(1, args.iterations))
-            timing_lines.append(f"higgs_tts.python.request_{request_index}.wall_ms={average_ms:.6f}")
-            print(f"higgs_tts.python.wall_ms={average_ms}")
+            timing_lines.append(f"higgs_audio_tts.python.request_{request_index}.wall_ms={average_ms:.6f}")
+            print(f"higgs_audio_tts.python.wall_ms={average_ms}")
             steps.append(
                 {
                     "request_index": request_index,
@@ -353,7 +353,7 @@ def main() -> int:
                     "metrics": {"wall_ms": average_ms},
                 }
             )
-        summary_payload = {"family": "higgs_tts", "backend": args.backend, "sequence_steps": steps}
+        summary_payload = {"family": "higgs_audio_tts", "backend": args.backend, "sequence_steps": steps}
         if args.summary_file:
             args.summary_file.parent.mkdir(parents=True, exist_ok=True)
             args.summary_file.write_text(json.dumps(summary_payload, ensure_ascii=False) + "\n", encoding="utf-8")

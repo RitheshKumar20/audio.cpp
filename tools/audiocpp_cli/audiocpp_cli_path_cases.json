@@ -548,9 +548,9 @@
       ]
     },
     {
-      "id": "higgs_tts_voice_clone_chunked",
+      "id": "higgs_audio_tts_voice_clone_chunked",
       "coverage": "Higgs Audio v3 voice clone path with framework text chunking, AR generation, and codec decode",
-      "family": "higgs_tts",
+      "family": "higgs_audio_tts",
       "model": "models/higgs-audio-v3-tts-4b",
       "task": "tts",
       "mode": "offline",
@@ -571,9 +571,9 @@
       ]
     },
     {
-      "id": "higgs_tts_voice_clone_cache_pollution",
+      "id": "higgs_audio_tts_voice_clone_cache_pollution",
       "coverage": "Higgs Audio v3 long-lived session cache pollution check with short, long, medium, and long requests",
-      "family": "higgs_tts",
+      "family": "higgs_audio_tts",
       "model": "models/higgs-audio-v3-tts-4b",
       "task": "tts",
       "mode": "offline",

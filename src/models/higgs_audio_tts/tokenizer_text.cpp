@@ -1,4 +1,4 @@
-#include "engine/models/higgs_tts/tokenizer_text.h"
+#include "engine/models/higgs_audio_tts/tokenizer_text.h"
 
 #include "engine/framework/tokenizers/llama_bpe.h"
 
@@ -7,7 +7,7 @@
 #include <string>
 #include <utility>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 namespace {
 
 int32_t require_token_id(const engine::tokenizers::LlamaBpeTokenizer & tokenizer, const std::string & token) {
@@ -91,4 +91,4 @@ HiggsPromptEncoding HiggsTextTokenizer::encode_prompt(const HiggsPromptRequest &
     return encoding;
 }
 
-}  // namespace engine::models::higgs_tts
+}  // namespace engine::models::higgs_audio_tts

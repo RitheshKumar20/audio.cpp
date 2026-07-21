@@ -379,15 +379,15 @@ add_library(engine_runtime STATIC
     src/models/higgs_audio_stt/postprocess.cpp
     src/models/higgs_audio_stt/session.cpp
     src/models/higgs_audio_stt/loader.cpp
-    src/models/higgs_tts/ar.cpp
-    src/models/higgs_tts/assets.cpp
-    src/models/higgs_tts/codec.cpp
-    src/models/higgs_tts/codebooks.cpp
-    src/models/higgs_tts/generator.cpp
-    src/models/higgs_tts/loader.cpp
-    src/models/higgs_tts/sampler.cpp
-    src/models/higgs_tts/session.cpp
-    src/models/higgs_tts/tokenizer_text.cpp
+    src/models/higgs_audio_tts/ar.cpp
+    src/models/higgs_audio_tts/assets.cpp
+    src/models/higgs_audio_tts/codec.cpp
+    src/models/higgs_audio_tts/codebooks.cpp
+    src/models/higgs_audio_tts/generator.cpp
+    src/models/higgs_audio_tts/loader.cpp
+    src/models/higgs_audio_tts/sampler.cpp
+    src/models/higgs_audio_tts/session.cpp
+    src/models/higgs_audio_tts/tokenizer_text.cpp
     src/models/irodori_tts/assets.cpp
     src/models/irodori_tts/codec.cpp
     src/models/irodori_tts/condition_encoder.cpp
@@ -731,7 +731,7 @@ if (ENGINE_BUILD_WARMBENCH)
     add_engine_warmbench(chatterbox_warm_bench tests/chatterbox/chatterbox_warm_bench.cpp)
     add_engine_warmbench(citrinet_asr_warm_bench tests/citrinet_asr/citrinet_asr_warm_bench.cpp)
     add_engine_warmbench(higgs_audio_stt_warm_bench tests/higgs_audio_stt/higgs_audio_stt_warm_bench.cpp)
-    add_engine_warmbench(higgs_tts_warm_bench tests/higgs_tts/higgs_tts_warm_bench.cpp)
+    add_engine_warmbench(higgs_audio_tts_warm_bench tests/higgs_audio_tts/higgs_audio_tts_warm_bench.cpp)
     add_engine_warmbench(hviske_asr_warm_bench tests/hviske_asr/hviske_asr_warm_bench.cpp)
     add_engine_warmbench(index_tts2_warm_bench tests/index_tts2/index_tts2_warm_bench.cpp)
     add_engine_warmbench(irodori_tts_warm_bench tests/irodori_tts/irodori_tts_warm_bench.cpp)

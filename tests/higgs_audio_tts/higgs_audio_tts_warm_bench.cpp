@@ -265,7 +265,7 @@ int main(int argc, char ** argv) {
         }
         const std::filesystem::path output_dir = arg_value(argc, argv, "--output-dir", "");
         const std::filesystem::path timing_path =
-            arg_value(argc, argv, "--timing-file", "/tmp/higgs_tts_warm_bench_timing.log");
+            arg_value(argc, argv, "--timing-file", "/tmp/higgs_audio_tts_warm_bench_timing.log");
         const std::filesystem::path log_path = arg_value(argc, argv, "--log-file", "");
         if (has_flag(argc, argv, "--enable-trace")) {
             if (log_path.empty()) {
@@ -276,7 +276,7 @@ int main(int argc, char ** argv) {
 
         engine::runtime::ModelLoadRequest load_request;
         load_request.model_path = model_path;
-        load_request.family_hint = "higgs_tts";
+        load_request.family_hint = "higgs_audio_tts";
         auto registry = engine::runtime::make_default_registry();
         auto model = registry.load(load_request);
 
@@ -305,7 +305,7 @@ int main(int argc, char ** argv) {
             std::filesystem::create_directories(output_dir);
         }
 
-        std::vector<std::string> timing_lines{"higgs_tts.cpp.model_load_excluded=1"};
+        std::vector<std::string> timing_lines{"higgs_audio_tts.cpp.model_load_excluded=1"};
         engine::io::json::Value::Array steps;
         steps.reserve(requests.size());
         for (size_t request_index = 0; request_index < requests.size(); ++request_index) {
@@ -331,15 +331,15 @@ int main(int argc, char ** argv) {
                     last_result.audio_output->samples);
             }
             timing_lines.push_back(
-                "higgs_tts.cpp.request_" + std::to_string(request_index) + ".wall_ms=" + std::to_string(wall_ms));
+                "higgs_audio_tts.cpp.request_" + std::to_string(request_index) + ".wall_ms=" + std::to_string(wall_ms));
             const auto & audio = *last_result.audio_output;
             const double frames = static_cast<double>(
                 audio.samples.size() / static_cast<size_t>(std::max(1, audio.channels)));
             const double duration_sec = audio.sample_rate > 0 ? frames / audio.sample_rate : 0.0;
             const double rtf = duration_sec > 0.0 ? wall_ms / 1000.0 / duration_sec : 0.0;
             timing_lines.push_back(
-                "higgs_tts.cpp.request_" + std::to_string(request_index) + ".rtf=" + std::to_string(rtf));
-            std::cout << "higgs_tts.cpp.request=" << request_index
+                "higgs_audio_tts.cpp.request_" + std::to_string(request_index) + ".rtf=" + std::to_string(rtf));
+            std::cout << "higgs_audio_tts.cpp.request=" << request_index
                       << " wall_ms=" << wall_ms
                       << " rtf=" << rtf << "\n";
             steps.push_back(step_json(last_result, static_cast<int>(request_index), wall_ms, audio_path));
@@ -347,14 +347,14 @@ int main(int argc, char ** argv) {
 
         write_timing(timing_path, timing_lines);
         const auto summary = engine::io::json::Value::make_object({
-            {"family", string("higgs_tts")},
+            {"family", string("higgs_audio_tts")},
             {"backend", string(backend_name)},
             {"sequence_steps", engine::io::json::Value::make_array(std::move(steps))},
         });
         std::cout << "summary_json=" << engine::io::json::stringify(summary) << "\n";
         return 0;
     } catch (const std::exception & ex) {
-        std::cerr << "higgs_tts_warm_bench failed: " << ex.what() << "\n";
+        std::cerr << "higgs_audio_tts_warm_bench failed: " << ex.what() << "\n";
         return 1;
     }
 }

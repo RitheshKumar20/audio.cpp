@@ -1,13 +1,13 @@
 #pragma once
 
 #include "engine/framework/sampling/torch_random.h"
-#include "engine/models/higgs_tts/codebooks.h"
+#include "engine/models/higgs_audio_tts/codebooks.h"
 
 #include <cstdint>
 #include <optional>
 #include <vector>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 
 constexpr int64_t kHiggsMaxTopK = 1026;
 
@@ -51,4 +51,4 @@ private:
     std::vector<int32_t> scratch_codes_;
 };
 
-} // namespace engine::models::higgs_tts
+} // namespace engine::models::higgs_audio_tts

@@ -2,7 +2,7 @@
 """Compare Higgs warmbench runs request by request.
 
 Each result directory is expected to contain timing.log and audio/audio_N.wav,
-as emitted by higgs_tts_warm_bench. The report includes exact frame counts,
+as emitted by higgs_audio_tts_warm_bench. The report includes exact frame counts,
 wall time, RTF, speedup, waveform cosine, and log-mel cosine per request.
 """
 
@@ -72,7 +72,7 @@ def log_mel(samples: np.ndarray, sample_rate: int, n_fft: int = 1024, hop: int =
 def timings(path: Path) -> dict[int, float]:
     result: dict[int, float] = {}
     for line in (path / "timing.log").read_text(encoding="utf-8").splitlines():
-        prefix = "higgs_tts.cpp.request_"
+        prefix = "higgs_audio_tts.cpp.request_"
         if not line.startswith(prefix) or ".wall_ms=" not in line:
             continue
         index_text, value = line[len(prefix) :].split(".wall_ms=", 1)

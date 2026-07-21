@@ -1,17 +1,17 @@
-#include "engine/models/higgs_tts/loader.h"
+#include "engine/models/higgs_audio_tts/loader.h"
 
 #include "engine/framework/assets/model_package.h"
-#include "engine/models/higgs_tts/session.h"
+#include "engine/models/higgs_audio_tts/session.h"
 
 #include <stdexcept>
 #include <utility>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 namespace {
 
 runtime::ModelMetadata metadata(const HiggsAssets &) {
     runtime::ModelMetadata out;
-    out.family = "higgs_tts";
+    out.family = "higgs_audio_tts";
     out.variant = "v3-4b";
     out.description = "Higgs Audio v3 TTS loaded from local SGLang-Omni compatible assets.";
     out.config_candidates = {
@@ -47,15 +47,15 @@ runtime::ModelCliInterface cli(const HiggsAssets &) {
         {"text_chunk_mode", "default|tag_aware|japanese|endline", "Framework text chunking mode."},
     };
     out.session_options = {
-        {"higgs_tts.weight_type", "native|f32|f16|bf16|q8_0", "AR and codec weight storage type."},
-        {"higgs_tts.ar_weight_type", "native|f32|f16|bf16|q8_0", "Autoregressive decoder weight storage type."},
-        {"higgs_tts.codec_weight_type", "native|f32|f16|bf16|q8_0", "Codec weight storage type."},
-        {"higgs_tts.ar_weight_context_mb", "n", "AR weight context size."},
-        {"higgs_tts.codec_weight_context_mb", "n", "Codec weight context size."},
-        {"higgs_tts.ar_decode_graph_arena_mb", "n", "AR decode graph arena size."},
-        {"higgs_tts.codec_decode_graph_arena_mb", "n", "Codec decode graph arena size."},
-        {"higgs_tts.codec_encode_graph_arena_mb", "n", "Codec encode graph arena size."},
-        {"higgs_tts.reference_cache_slots", "n", "Encoded reference-audio cache slots; default 1."},
+        {"higgs_audio_tts.weight_type", "native|f32|f16|bf16|q8_0", "AR and codec weight storage type."},
+        {"higgs_audio_tts.ar_weight_type", "native|f32|f16|bf16|q8_0", "Autoregressive decoder weight storage type."},
+        {"higgs_audio_tts.codec_weight_type", "native|f32|f16|bf16|q8_0", "Codec weight storage type."},
+        {"higgs_audio_tts.ar_weight_context_mb", "n", "AR weight context size."},
+        {"higgs_audio_tts.codec_weight_context_mb", "n", "Codec weight context size."},
+        {"higgs_audio_tts.ar_decode_graph_arena_mb", "n", "AR decode graph arena size."},
+        {"higgs_audio_tts.codec_decode_graph_arena_mb", "n", "Codec decode graph arena size."},
+        {"higgs_audio_tts.codec_encode_graph_arena_mb", "n", "Codec encode graph arena size."},
+        {"higgs_audio_tts.reference_cache_slots", "n", "Encoded reference-audio cache slots; default 1."},
     };
     return out;
 }
@@ -63,7 +63,16 @@ runtime::ModelCliInterface cli(const HiggsAssets &) {
 class HiggsTTSLoader final : public runtime::IVoiceModelLoader {
 public:
     std::string family() const override {
-        return "higgs_tts";
+        return "higgs_audio_tts";
+    }
+
+    runtime::CapabilitySet advertised_capabilities() const override {
+        runtime::CapabilitySet out;
+        out.supported_tasks = {
+            {runtime::VoiceTaskKind::Tts, {runtime::RunMode::Offline}},
+        };
+        out.supports_speaker_reference = true;
+        return out;
     }
 
     bool can_load(const runtime::ModelLoadRequest & request) const override {
@@ -99,7 +108,7 @@ public:
     }
 
     std::unique_ptr<runtime::ILoadedVoiceModel> load(const runtime::ModelLoadRequest & request) const override {
-        return load_higgs_tts_model(request.model_path);
+        return load_higgs_audio_tts_model(request.model_path);
     }
 };
 
@@ -133,7 +142,7 @@ std::unique_ptr<runtime::IVoiceTaskSession> HiggsTTSLoadedModel::create_task_ses
     return std::make_unique<HiggsTTSSession>(task, options, assets_);
 }
 
-std::unique_ptr<HiggsTTSLoadedModel> load_higgs_tts_model(const std::filesystem::path & model_path) {
+std::unique_ptr<HiggsTTSLoadedModel> load_higgs_audio_tts_model(const std::filesystem::path & model_path) {
     auto assets = load_higgs_assets(model_path);
     return std::make_unique<HiggsTTSLoadedModel>(
         metadata(*assets),
@@ -141,8 +150,8 @@ std::unique_ptr<HiggsTTSLoadedModel> load_higgs_tts_model(const std::filesystem:
         std::move(assets));
 }
 
-std::shared_ptr<runtime::IVoiceModelLoader> make_higgs_tts_loader() {
+std::shared_ptr<runtime::IVoiceModelLoader> make_higgs_audio_tts_loader() {
     return std::make_shared<HiggsTTSLoader>();
 }
 
-}  // namespace engine::models::higgs_tts
+}  // namespace engine::models::higgs_audio_tts

@@ -1,4 +1,4 @@
-#include "engine/models/higgs_tts/ar.h"
+#include "engine/models/higgs_audio_tts/ar.h"
 
 #include "engine/framework/core/backend.h"
 #include "engine/framework/core/backend_weight_store.h"
@@ -24,7 +24,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 namespace {
 
 namespace modules = engine::modules;
@@ -345,7 +345,7 @@ HiggsARWeights load_higgs_ar_weights(
     weights.store = std::make_shared<core::BackendWeightStore>(
         backend,
         backend_type,
-        "higgs_tts.ar.weights",
+        "higgs_audio_tts.ar.weights",
         weight_context_bytes);
     weights.text_embedding = weights.store->load_tensor(
         source,
@@ -435,7 +435,7 @@ struct HiggsARKVCache::Impl {
         if (ctx == nullptr) {
             throw std::runtime_error("failed to initialize Higgs TTS AR KV cache context");
         }
-        core::ModuleBuildContext build_ctx{ctx.get(), "higgs_tts.ar.kv_cache", runtime->backend_type()};
+        core::ModuleBuildContext build_ctx{ctx.get(), "higgs_audio_tts.ar.kv_cache", runtime->backend_type()};
         std::vector<core::TensorValue> key_tensors;
         std::vector<core::TensorValue> value_tensors;
         key_tensors.reserve(tensor_weights.decoder.layers.size());
@@ -580,7 +580,7 @@ struct HiggsARDecodeGraph::Impl {
         }
         const auto & config = runtime->assets().config;
         const auto & tensor_weights = runtime->weights();
-        core::ModuleBuildContext build_ctx{ctx.get(), "higgs_tts.ar.decode", runtime->backend_type()};
+        core::ModuleBuildContext build_ctx{ctx.get(), "higgs_audio_tts.ar.decode", runtime->backend_type()};
 
         fused_code_ids = ggml_new_tensor_1d(ctx.get(), GGML_TYPE_I32, config.audio.num_codebooks);
         auto x = build_higgs_decode_code_embedding(
@@ -630,7 +630,7 @@ struct HiggsARDecodeGraph::Impl {
         fused_code_ids_values.assign(static_cast<size_t>(config.audio.num_codebooks), 0);
         attention_mask_values.assign(static_cast<size_t>(cache_steps), ggml_fp32_to_fp16(-INFINITY));
         engine::debug::timing_log_scalar(
-            "higgs_tts.ar.decode.graph.build_ms",
+            "higgs_audio_tts.ar.decode.graph.build_ms",
             engine::debug::elapsed_ms(build_start, Clock::now()));
     }
 
@@ -714,7 +714,7 @@ struct HiggsARDecodeGraph::Impl {
         const double input_upload_delta_ms = engine::debug::elapsed_ms(timing_start, Clock::now());
         input_upload_ms += input_upload_delta_ms;
         if (log_timing) {
-            engine::debug::timing_log_scalar("higgs_tts.ar.decode.step0.input_upload_ms", input_upload_delta_ms);
+            engine::debug::timing_log_scalar("higgs_audio_tts.ar.decode.step0.input_upload_ms", input_upload_delta_ms);
         }
         timing_start = Clock::now();
         attention_mask_values[static_cast<size_t>(cache_slot_value)] = ggml_fp32_to_fp16(0.0F);
@@ -726,7 +726,7 @@ struct HiggsARDecodeGraph::Impl {
         const double mask_upload_delta_ms = engine::debug::elapsed_ms(timing_start, Clock::now());
         mask_upload_ms += mask_upload_delta_ms;
         if (log_timing) {
-            engine::debug::timing_log_scalar("higgs_tts.ar.decode.step0.mask_upload_ms", mask_upload_delta_ms);
+            engine::debug::timing_log_scalar("higgs_audio_tts.ar.decode.step0.mask_upload_ms", mask_upload_delta_ms);
         }
 
         timing_start = Clock::now();
@@ -737,7 +737,7 @@ struct HiggsARDecodeGraph::Impl {
         const double graph_compute_delta_ms = engine::debug::elapsed_ms(timing_start, Clock::now());
         graph_compute_ms += graph_compute_delta_ms;
         if (log_timing) {
-            engine::debug::timing_log_scalar("higgs_tts.ar.decode.step0.graph.compute_ms", graph_compute_delta_ms);
+            engine::debug::timing_log_scalar("higgs_audio_tts.ar.decode.step0.graph.compute_ms", graph_compute_delta_ms);
         }
         if (status != GGML_STATUS_SUCCESS) {
             throw std::runtime_error("Higgs TTS AR decode graph compute failed");
@@ -753,7 +753,7 @@ struct HiggsARDecodeGraph::Impl {
         const double output_read_delta_ms = engine::debug::elapsed_ms(timing_start, Clock::now());
         output_read_ms += output_read_delta_ms;
         if (log_timing) {
-            engine::debug::timing_log_scalar("higgs_tts.ar.decode.step0.output_read_ms", output_read_delta_ms);
+            engine::debug::timing_log_scalar("higgs_audio_tts.ar.decode.step0.output_read_ms", output_read_delta_ms);
         }
 
         cache->advance_after_direct_append(1);
@@ -808,7 +808,7 @@ struct HiggsARPrefillGraph::Impl {
             throw std::runtime_error("Higgs TTS AR suffix prefill requires a target KV cache");
         }
         if (layerwise) {
-            engine::debug::timing_log_scalar("higgs_tts.ar.prefill.graph.build_ms", 0.0);
+            engine::debug::timing_log_scalar("higgs_audio_tts.ar.prefill.graph.build_ms", 0.0);
             return;
         }
         const auto build_start = Clock::now();
@@ -819,7 +819,7 @@ struct HiggsARPrefillGraph::Impl {
         }
         const auto & config = runtime->assets().config;
         const auto & tensor_weights = runtime->weights();
-        core::ModuleBuildContext build_ctx{ctx.get(), "higgs_tts.ar.prefill", runtime->backend_type()};
+        core::ModuleBuildContext build_ctx{ctx.get(), "higgs_audio_tts.ar.prefill", runtime->backend_type()};
 
         text_tokens = ggml_new_tensor_1d(ctx.get(), GGML_TYPE_I32, run_steps);
         fused_code_ids = ggml_new_tensor_2d(ctx.get(), GGML_TYPE_I32, config.audio.num_codebooks, run_steps);
@@ -915,7 +915,7 @@ struct HiggsARPrefillGraph::Impl {
         positions_values = modules::qwen_position_ids(run_steps, start_step);
         attention_mask_values = modules::qwen_causal_suffix_mask_values(1, run_steps, start_step);
         engine::debug::timing_log_scalar(
-            "higgs_tts.ar.prefill.graph.build_ms",
+            "higgs_audio_tts.ar.prefill.graph.build_ms",
             engine::debug::elapsed_ms(build_start, Clock::now()));
     }
 
@@ -944,7 +944,7 @@ struct HiggsARPrefillGraph::Impl {
             if (ctx == nullptr) {
                 throw std::runtime_error("failed to initialize Higgs TTS AR embedding graph context");
             }
-            core::ModuleBuildContext build_ctx{ctx.get(), "higgs_tts.ar.prefill.embedding", runtime.backend_type()};
+            core::ModuleBuildContext build_ctx{ctx.get(), "higgs_audio_tts.ar.prefill.embedding", runtime.backend_type()};
             text_tokens = ggml_new_tensor_1d(ctx.get(), GGML_TYPE_I32, steps);
             fused_code_ids = ggml_new_tensor_2d(ctx.get(), GGML_TYPE_I32, config.audio.num_codebooks, steps);
             text_gate = ggml_new_tensor_3d(ctx.get(), GGML_TYPE_F32, 1, steps, 1);
@@ -1020,7 +1020,7 @@ struct HiggsARPrefillGraph::Impl {
             if (ctx == nullptr) {
                 throw std::runtime_error("failed to initialize Higgs TTS AR layer prefill graph context");
             }
-            core::ModuleBuildContext build_ctx{ctx.get(), "higgs_tts.ar.prefill.layer", runtime.backend_type()};
+            core::ModuleBuildContext build_ctx{ctx.get(), "higgs_audio_tts.ar.prefill.layer", runtime.backend_type()};
             auto x = core::make_tensor(
                 build_ctx,
                 GGML_TYPE_F32,
@@ -1116,7 +1116,7 @@ struct HiggsARPrefillGraph::Impl {
             if (ctx == nullptr) {
                 throw std::runtime_error("failed to initialize Higgs TTS AR final prefill graph context");
             }
-            core::ModuleBuildContext build_ctx{ctx.get(), "higgs_tts.ar.prefill.final", runtime.backend_type()};
+            core::ModuleBuildContext build_ctx{ctx.get(), "higgs_audio_tts.ar.prefill.final", runtime.backend_type()};
             auto x = core::make_tensor(
                 build_ctx,
                 GGML_TYPE_F32,
@@ -1364,4 +1364,4 @@ void HiggsARDecodeGraph::run_step_into(
     impl_->run_step_into(input, output, log_timing);
 }
 
-}  // namespace engine::models::higgs_tts
+}  // namespace engine::models::higgs_audio_tts

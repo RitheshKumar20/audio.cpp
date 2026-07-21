@@ -1,13 +1,13 @@
 #pragma once
 
-#include "engine/models/higgs_tts/assets.h"
+#include "engine/models/higgs_audio_tts/assets.h"
 
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 
 struct HiggsPromptRequest {
     std::string text;
@@ -34,4 +34,4 @@ private:
     std::shared_ptr<const Impl> impl_;
 };
 
-}  // namespace engine::models::higgs_tts
+}  // namespace engine::models::higgs_audio_tts

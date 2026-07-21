@@ -7,7 +7,7 @@
 #include "engine/framework/modules/conv_modules.h"
 #include "engine/framework/modules/linear_module.h"
 #include "engine/framework/runtime/session.h"
-#include "engine/models/higgs_tts/assets.h"
+#include "engine/models/higgs_audio_tts/assets.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -19,7 +19,7 @@ namespace engine::core {
 class BackendWeightStore;
 }
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 
 class HiggsCodecDecodeGraph;
 class HiggsCodecEncodeGraph;
@@ -135,4 +135,4 @@ HiggsCodecWeights load_higgs_codec_decode_weights(
     size_t weight_context_bytes,
     assets::TensorStorageType weight_storage_type);
 
-}  // namespace engine::models::higgs_tts
+}  // namespace engine::models::higgs_audio_tts

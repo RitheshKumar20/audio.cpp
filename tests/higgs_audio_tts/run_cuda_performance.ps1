@@ -14,8 +14,8 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $ModelPath = (Resolve-Path $Model).Path
-$Bench = Join-Path $RepoRoot "$BuildDir/bin/higgs_tts_warm_bench.exe"
-$Cases = Join-Path $PSScriptRoot "higgs_tts_cuda_perf_cases.json"
+$Bench = Join-Path $RepoRoot "$BuildDir/bin/higgs_audio_tts_warm_bench.exe"
+$Cases = Join-Path $PSScriptRoot "higgs_audio_tts_cuda_perf_cases.json"
 $ResultDir = Join-Path $PSScriptRoot "results/$Label"
 
 if (-not (Test-Path -LiteralPath $Bench)) {

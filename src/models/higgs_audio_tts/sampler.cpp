@@ -1,4 +1,4 @@
-#include "engine/models/higgs_tts/sampler.h"
+#include "engine/models/higgs_audio_tts/sampler.h"
 
 #include "engine/framework/sampling/torch_random.h"
 
@@ -9,7 +9,7 @@
 #include <numeric>
 #include <stdexcept>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 namespace {
 
 constexpr float kGreedyTemperatureThreshold = 1.0e-5F;
@@ -455,4 +455,4 @@ const std::vector<int32_t> & HiggsCodebookSampler::step(const float * logits,
     return scratch_codes_;
 }
 
-} // namespace engine::models::higgs_tts
+} // namespace engine::models::higgs_audio_tts

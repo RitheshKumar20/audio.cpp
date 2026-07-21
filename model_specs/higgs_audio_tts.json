@@ -1,5 +1,5 @@
 {
-  "family": "higgs_tts",
+  "family": "higgs_audio_tts",
   "sources": [
     {
       "format": "gguf",

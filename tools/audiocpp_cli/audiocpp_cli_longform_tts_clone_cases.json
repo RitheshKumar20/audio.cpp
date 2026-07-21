@@ -225,9 +225,9 @@
       ]
     },
     {
-      "id": "higgs_tts_voice_clone_longform",
+      "id": "higgs_audio_tts_voice_clone_longform",
       "coverage": "Higgs Audio v3 voice clone with framework long-form text chunking, bounded AR generation, and codec decode",
-      "family": "higgs_tts",
+      "family": "higgs_audio_tts",
       "model": "models/higgs-audio-v3-tts-4b",
       "task": "tts",
       "mode": "offline",

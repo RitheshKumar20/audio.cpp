@@ -5,7 +5,7 @@
 #include "engine/framework/core/module.h"
 #include "engine/framework/modules/attention/qwen_decoder.h"
 #include "engine/framework/runtime/kv_cache.h"
-#include "engine/models/higgs_tts/assets.h"
+#include "engine/models/higgs_audio_tts/assets.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -16,7 +16,7 @@ namespace engine::core {
 class BackendWeightStore;
 }
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 
 struct HiggsQwenDecoderStackWeights {
     std::vector<modules::QwenDecoderLayerWeights> layers;
@@ -165,4 +165,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace engine::models::higgs_tts
+}  // namespace engine::models::higgs_audio_tts

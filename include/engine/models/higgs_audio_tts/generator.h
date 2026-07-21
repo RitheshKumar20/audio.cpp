@@ -1,9 +1,9 @@
 #pragma once
 
-#include "engine/models/higgs_tts/ar.h"
-#include "engine/models/higgs_tts/codec.h"
-#include "engine/models/higgs_tts/sampler.h"
-#include "engine/models/higgs_tts/tokenizer_text.h"
+#include "engine/models/higgs_audio_tts/ar.h"
+#include "engine/models/higgs_audio_tts/codec.h"
+#include "engine/models/higgs_audio_tts/sampler.h"
+#include "engine/models/higgs_audio_tts/tokenizer_text.h"
 
 #include <cstdint>
 #include <memory>
@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 
 struct HiggsGenerationOptions {
     int64_t max_tokens = 2048;
@@ -74,4 +74,4 @@ private:
     std::unique_ptr<HiggsARDecodeGraph> decode_graph_;
 };
 
-} // namespace engine::models::higgs_tts
+} // namespace engine::models::higgs_audio_tts

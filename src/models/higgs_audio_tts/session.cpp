@@ -1,4 +1,4 @@
-#include "engine/models/higgs_tts/session.h"
+#include "engine/models/higgs_audio_tts/session.h"
 
 #include "engine/framework/debug/profiler.h"
 #include "engine/framework/debug/trace.h"
@@ -12,7 +12,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -53,13 +53,13 @@ uint64_t hash_audio_samples(const runtime::AudioBuffer & audio) {
 std::size_t resolve_reference_cache_slots(const runtime::SessionOptions & options) {
     const int64_t slots = runtime::parse_i64_option(
         options.options,
-        {"higgs_tts.reference_cache_slots", "reference_cache_slots"})
+        {"higgs_audio_tts.reference_cache_slots", "reference_cache_slots"})
         .value_or(kDefaultReferenceCacheSlots);
     if (slots < 0) {
-        throw std::runtime_error("higgs_tts.reference_cache_slots must be non-negative");
+        throw std::runtime_error("higgs_audio_tts.reference_cache_slots must be non-negative");
     }
     if (static_cast<std::uint64_t>(slots) > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
-        throw std::runtime_error("higgs_tts.reference_cache_slots is too large");
+        throw std::runtime_error("higgs_audio_tts.reference_cache_slots is too large");
     }
     return static_cast<std::size_t>(slots);
 }
@@ -141,41 +141,41 @@ HiggsTTSSession::HiggsTTSSession(
     }
 
     ar_weight_context_bytes_ = runtime::parse_size_mb_option(
-        options.options, {"higgs_tts.ar_weight_context_mb"}, ar_weight_context_bytes_);
+        options.options, {"higgs_audio_tts.ar_weight_context_mb"}, ar_weight_context_bytes_);
     codec_weight_context_bytes_ = runtime::parse_size_mb_option(
-        options.options, {"higgs_tts.codec_weight_context_mb"}, codec_weight_context_bytes_);
+        options.options, {"higgs_audio_tts.codec_weight_context_mb"}, codec_weight_context_bytes_);
     ar_decode_graph_arena_bytes_ = runtime::parse_size_mb_option(
-        options.options, {"higgs_tts.ar_decode_graph_arena_mb"}, ar_decode_graph_arena_bytes_);
+        options.options, {"higgs_audio_tts.ar_decode_graph_arena_mb"}, ar_decode_graph_arena_bytes_);
     codec_decode_graph_arena_bytes_ = runtime::parse_size_mb_option(
-        options.options, {"higgs_tts.codec_decode_graph_arena_mb"}, codec_decode_graph_arena_bytes_);
+        options.options, {"higgs_audio_tts.codec_decode_graph_arena_mb"}, codec_decode_graph_arena_bytes_);
     codec_encode_graph_arena_bytes_ = runtime::parse_size_mb_option(
-        options.options, {"higgs_tts.codec_encode_graph_arena_mb"}, codec_encode_graph_arena_bytes_);
+        options.options, {"higgs_audio_tts.codec_encode_graph_arena_mb"}, codec_encode_graph_arena_bytes_);
 
-    if (const auto it = options.options.find("higgs_tts.weight_type"); it != options.options.end()) {
+    if (const auto it = options.options.find("higgs_audio_tts.weight_type"); it != options.options.end()) {
         const auto storage_type = assets::parse_tensor_storage_type(it->second);
-        validate_matmul_weight_storage(storage_type, "higgs_tts.weight_type");
+        validate_matmul_weight_storage(storage_type, "higgs_audio_tts.weight_type");
         ar_weight_storage_type_ = storage_type;
         codec_weight_storage_type_ = storage_type;
     }
-    if (const auto it = options.options.find("higgs_tts.ar_weight_type"); it != options.options.end()) {
+    if (const auto it = options.options.find("higgs_audio_tts.ar_weight_type"); it != options.options.end()) {
         ar_weight_storage_type_ = assets::parse_tensor_storage_type(it->second);
-        validate_matmul_weight_storage(ar_weight_storage_type_, "higgs_tts.ar_weight_type");
+        validate_matmul_weight_storage(ar_weight_storage_type_, "higgs_audio_tts.ar_weight_type");
     }
-    if (const auto it = options.options.find("higgs_tts.codec_weight_type"); it != options.options.end()) {
+    if (const auto it = options.options.find("higgs_audio_tts.codec_weight_type"); it != options.options.end()) {
         codec_weight_storage_type_ = assets::parse_tensor_storage_type(it->second);
-        validate_matmul_weight_storage(codec_weight_storage_type_, "higgs_tts.codec_weight_type");
+        validate_matmul_weight_storage(codec_weight_storage_type_, "higgs_audio_tts.codec_weight_type");
     }
     for (const auto & [key, _] : options.options) {
-        if (key.rfind("higgs_tts.", 0) == 0 &&
-            key != "higgs_tts.ar_weight_context_mb" &&
-            key != "higgs_tts.codec_weight_context_mb" &&
-            key != "higgs_tts.ar_decode_graph_arena_mb" &&
-            key != "higgs_tts.codec_decode_graph_arena_mb" &&
-            key != "higgs_tts.codec_encode_graph_arena_mb" &&
-            key != "higgs_tts.reference_cache_slots" &&
-            key != "higgs_tts.weight_type" &&
-            key != "higgs_tts.ar_weight_type" &&
-            key != "higgs_tts.codec_weight_type") {
+        if (key.rfind("higgs_audio_tts.", 0) == 0 &&
+            key != "higgs_audio_tts.ar_weight_context_mb" &&
+            key != "higgs_audio_tts.codec_weight_context_mb" &&
+            key != "higgs_audio_tts.ar_decode_graph_arena_mb" &&
+            key != "higgs_audio_tts.codec_decode_graph_arena_mb" &&
+            key != "higgs_audio_tts.codec_encode_graph_arena_mb" &&
+            key != "higgs_audio_tts.reference_cache_slots" &&
+            key != "higgs_audio_tts.weight_type" &&
+            key != "higgs_audio_tts.ar_weight_type" &&
+            key != "higgs_audio_tts.codec_weight_type") {
             throw std::runtime_error("unknown Higgs TTS session option: " + key);
         }
     }
@@ -200,7 +200,7 @@ HiggsTTSSession::HiggsTTSSession(
 }
 
 std::string HiggsTTSSession::family() const {
-    return "higgs_tts";
+    return "higgs_audio_tts";
 }
 
 runtime::VoiceTaskKind HiggsTTSSession::task_kind() const {
@@ -235,9 +235,9 @@ runtime::TaskResult HiggsTTSSession::run(const runtime::TaskRequest & request) {
     const auto * reference_audio = find_reference_audio(request);
     const HiggsCodecEncodeOutput * reference_codes =
         reference_audio != nullptr ? &resolve_reference_codes(*reference_audio, reference_text) : nullptr;
-    debug::trace_log_scalar("higgs_tts.text_chunk_size", text_chunk_size);
-    debug::trace_log_scalar("higgs_tts.text_chunk_mode", engine::text::text_chunk_mode_name(text_chunk_mode));
-    debug::trace_log_scalar("higgs_tts.text_chunk_count", static_cast<int64_t>(chunk_requests.size()));
+    debug::trace_log_scalar("higgs_audio_tts.text_chunk_size", text_chunk_size);
+    debug::trace_log_scalar("higgs_audio_tts.text_chunk_mode", engine::text::text_chunk_mode_name(text_chunk_mode));
+    debug::trace_log_scalar("higgs_audio_tts.text_chunk_count", static_cast<int64_t>(chunk_requests.size()));
 
     runtime::AudioBuffer merged_audio;
     for (const auto & chunk_request : chunk_requests) {
@@ -267,35 +267,35 @@ const HiggsCodecEncodeOutput & HiggsTTSSession::resolve_reference_codes(
     key.channels = audio.channels;
     key.sample_count = sample_count;
     key.sample_hash = sample_hash;
-    debug::trace_log_scalar("higgs_tts.reference_audio.sample_rate", audio.sample_rate);
-    debug::trace_log_scalar("higgs_tts.reference_audio.channels", audio.channels);
-    debug::trace_log_f32("higgs_tts.reference_audio.samples",
+    debug::trace_log_scalar("higgs_audio_tts.reference_audio.sample_rate", audio.sample_rate);
+    debug::trace_log_scalar("higgs_audio_tts.reference_audio.channels", audio.channels);
+    debug::trace_log_f32("higgs_audio_tts.reference_audio.samples",
                          {static_cast<int64_t>(audio.samples.size())},
                          audio.samples);
-    debug::trace_log_scalar("higgs_tts.reference_cache.capacity", static_cast<int64_t>(reference_cache_.capacity()));
-    debug::trace_log_scalar("higgs_tts.reference_cache.size", static_cast<int64_t>(reference_cache_.size()));
+    debug::trace_log_scalar("higgs_audio_tts.reference_cache.capacity", static_cast<int64_t>(reference_cache_.capacity()));
+    debug::trace_log_scalar("higgs_audio_tts.reference_cache.size", static_cast<int64_t>(reference_cache_.size()));
     if (const auto * cached = reference_cache_.find(key)) {
-        debug::trace_log_scalar("higgs_tts.reference_cache.hit", 1);
+        debug::trace_log_scalar("higgs_audio_tts.reference_cache.hit", 1);
         return cached->codes;
     }
-    debug::trace_log_scalar("higgs_tts.reference_cache.hit", 0);
+    debug::trace_log_scalar("higgs_audio_tts.reference_cache.hit", 0);
 
     const auto encode_start = Clock::now();
     ReferenceCacheEntry entry;
     entry.codes = codec_->encode_reference(audio);
     codec_->release_encode_graph();
-    debug::trace_log_scalar("higgs_tts.reference_codes.frames", entry.codes.frames);
-    debug::trace_log_scalar("higgs_tts.reference_codes.codebooks", entry.codes.codebooks);
-    debug::trace_log_i32("higgs_tts.reference_codes.values",
+    debug::trace_log_scalar("higgs_audio_tts.reference_codes.frames", entry.codes.frames);
+    debug::trace_log_scalar("higgs_audio_tts.reference_codes.codebooks", entry.codes.codebooks);
+    debug::trace_log_i32("higgs_audio_tts.reference_codes.values",
                          {entry.codes.frames, entry.codes.codebooks},
                          entry.codes.codes);
     if (reference_cache_.capacity() == 0) {
         uncached_reference_ = std::move(entry);
-        debug::timing_log_scalar("higgs_tts.codec.encode_reference_ms", engine::debug::elapsed_ms(encode_start));
+        debug::timing_log_scalar("higgs_audio_tts.codec.encode_reference_ms", engine::debug::elapsed_ms(encode_start));
         return uncached_reference_->codes;
     }
     reference_cache_.put(key, std::move(entry));
-    debug::timing_log_scalar("higgs_tts.codec.encode_reference_ms", engine::debug::elapsed_ms(encode_start));
+    debug::timing_log_scalar("higgs_audio_tts.codec.encode_reference_ms", engine::debug::elapsed_ms(encode_start));
     return reference_cache_.find(key)->codes;
 }
 
@@ -324,4 +324,4 @@ HiggsGenerationRequest HiggsTTSSession::make_generation_request(
     return out;
 }
 
-}  // namespace engine::models::higgs_tts
+}  // namespace engine::models::higgs_audio_tts

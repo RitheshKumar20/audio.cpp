@@ -1,9 +1,9 @@
-#include "engine/models/higgs_tts/codebooks.h"
+#include "engine/models/higgs_audio_tts/codebooks.h"
 
 #include <stdexcept>
 #include <string>
 
-namespace engine::models::higgs_tts {
+namespace engine::models::higgs_audio_tts {
 namespace {
 
 void require_codebook_matrix(
@@ -76,4 +76,4 @@ std::vector<int32_t> reverse_higgs_delay_pattern(
     return raw;
 }
 
-}  // namespace engine::models::higgs_tts
+}  // namespace engine::models::higgs_audio_tts
