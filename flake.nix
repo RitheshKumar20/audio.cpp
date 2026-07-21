@@ -9,18 +9,14 @@
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
-      nixpkgsFreeFor = forAllSystems (system: import nixpkgs { 
+      nixpkgsFor = forAllSystems (system: import nixpkgs { 
         inherit system; 
-      });
-      nixpkgsUnfreeFor = forAllSystems (system: import nixpkgs { 
-        inherit system; 
-        config.allowUnfree = true;
       });
     in
     {
       packages = forAllSystems (system:
         let
-          pkgs = nixpkgsFreeFor.${system};
+          pkgs = nixpkgsFor.${system};
           # A function to build audio.cpp with any set of features
           mkAudioCpp = { pkgs, cudaSupport ? false, vulkanSupport ? false, metalSupport ? pkgs.stdenv.isDarwin }: 
             let
@@ -94,25 +90,25 @@
         in
         {
           # Expose specific backend variants
-          cpu = mkAudioCpp { pkgs = nixpkgsFreeFor.${system}; cudaSupport = false; vulkanSupport = false; metalSupport = false; };
-          vulkan = mkAudioCpp { pkgs = nixpkgsFreeFor.${system}; vulkanSupport = true; cudaSupport = false; metalSupport = false; };
+          cpu = mkAudioCpp { pkgs = nixpkgsFor.${system}; cudaSupport = false; vulkanSupport = false; metalSupport = false; };
+          vulkan = mkAudioCpp { pkgs = nixpkgsFor.${system}; vulkanSupport = true; cudaSupport = false; metalSupport = false; };
         } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-          cuda = mkAudioCpp { pkgs = nixpkgsUnfreeFor.${system}; cudaSupport = true; vulkanSupport = false; metalSupport = false; };
+          cuda = mkAudioCpp { pkgs = nixpkgsFor.${system}; cudaSupport = true; vulkanSupport = false; metalSupport = false; };
         } // pkgs.lib.optionalAttrs pkgs.stdenv.isDarwin {
-          metal = mkAudioCpp { pkgs = nixpkgsFreeFor.${system}; metalSupport = true; cudaSupport = false; vulkanSupport = false; };
+          metal = mkAudioCpp { pkgs = nixpkgsFor.${system}; metalSupport = true; cudaSupport = false; vulkanSupport = false; };
         } // {
           # Automatically select best default for the current platform
-          default = if nixpkgsFreeFor.${system}.stdenv.isDarwin then self.packages.${system}.metal else self.packages.${system}.vulkan;
+          default = if nixpkgsFor.${system}.stdenv.isDarwin then self.packages.${system}.metal else self.packages.${system}.vulkan;
         }
       );
 
       devShells = forAllSystems (system:
         {
-          default = nixpkgsFreeFor.${system}.mkShell {
+          default = nixpkgsFor.${system}.mkShell {
             inputsFrom = [ self.packages.${system}.default ];
           };
-        } // nixpkgsFreeFor.${system}.lib.optionalAttrs nixpkgsFreeFor.${system}.stdenv.isLinux {
-          cuda = nixpkgsUnfreeFor.${system}.mkShell {
+        } // nixpkgsFor.${system}.lib.optionalAttrs nixpkgsFor.${system}.stdenv.isLinux {
+          cuda = nixpkgsFor.${system}.mkShell {
             inputsFrom = [ self.packages.${system}.cuda ];
           };
         }
