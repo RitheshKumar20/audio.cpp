@@ -30,7 +30,9 @@ FishAudioGenerator::FishAudioGenerator(
 FishAudioGenerator::~FishAudioGenerator() = default;
 
 FishAudioCodes FishAudioGenerator::encode_reference(const runtime::AudioBuffer & audio) {
-    return codec_->encode_reference(audio);
+    auto codes = codec_->encode_reference(audio);
+    codec_->release_encode_graph();
+    return codes;
 }
 
 FishAudioGenerationResult FishAudioGenerator::generate(
@@ -61,9 +63,9 @@ FishAudioGenerationResult FishAudioGenerator::generate(
     engine::debug::timing_log_scalar(
         "fish_audio.codec_decode_ms",
         engine::debug::elapsed_ms(decode_start, Clock::now()));
+    codec_->release_runtime_graphs();
     if (mem_saver) {
         ar_->release_runtime_graphs();
-        codec_->release_runtime_graphs();
     }
     return result;
 }

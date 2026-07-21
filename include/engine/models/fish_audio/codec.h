@@ -23,6 +23,7 @@ public:
 
     FishAudioCodes encode_reference(const runtime::AudioBuffer & audio);
     runtime::AudioBuffer decode(const FishAudioCodes & codes);
+    void release_encode_graph();
     void release_runtime_graphs();
 
 private:

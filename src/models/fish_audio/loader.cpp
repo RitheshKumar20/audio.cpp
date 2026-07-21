@@ -43,7 +43,7 @@ runtime::ModelCliInterface cli(const FishAudioAssets &) {
         {"seed", "N", "Sampling seed."},
     };
     out.session_options = {
-        {"fish_audio.mem_saver", "true|false", "Release cached runtime graphs after each request; default false."},
+        {"fish_audio.mem_saver", "true|false", "Release cached AR runtime graphs after each request; default false."},
         {"fish_audio.reference_cache_slots", "n", "Prepared reference-audio cache slots; default 1."},
         {"fish_audio.weight_type", "native|f32|f16|bf16|q8_0", "AR matmul weight storage type; default native."},
         {"fish_audio.codec_weight_type", "native|f32|f16|q8_0", "Codec conv/matmul weight storage type; default native."},

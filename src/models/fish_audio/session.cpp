@@ -349,9 +349,6 @@ void FishAudioSession::prepare(const runtime::SessionPreparationRequest & reques
     if (auto reference = reference_from_voice(*assets_, request.voice, request.options, "Fish Audio prepare");
         reference.has_value()) {
         defaults.reference = std::move(*reference);
-        if (defaults.reference->audio.has_value()) {
-            (void) resolve_reference_codes(*defaults.reference);
-        }
         has_defaults = true;
     }
     if (has_defaults) {

@@ -1081,6 +1081,10 @@ public:
         return decode_graph_->run(codes);
     }
 
+    void release_encode_graph() {
+        encode_graph_.reset();
+    }
+
     void release_runtime_graphs() {
         encode_graph_.reset();
         decode_graph_.reset();
@@ -1121,6 +1125,10 @@ FishAudioCodes FishAudioCodecRuntime::encode_reference(const runtime::AudioBuffe
 
 runtime::AudioBuffer FishAudioCodecRuntime::decode(const FishAudioCodes & codes) {
     return impl_->decode(codes);
+}
+
+void FishAudioCodecRuntime::release_encode_graph() {
+    impl_->release_encode_graph();
 }
 
 void FishAudioCodecRuntime::release_runtime_graphs() {
