@@ -40,7 +40,7 @@ runtime::ModelCliInterface cli(const FishAudioAssets &) {
         {"top_p", "FLOAT", "Top-p sampling value."},
         {"top_k", "N", "Top-k sampling value."},
         {"temperature", "FLOAT", "Sampling temperature."},
-        {"seed", "N", "Sampling seed."},
+        {"seed", "N", "Sampling seed for reproducible output; omitted uses a random seed."},
     };
     out.session_options = {
         {"fish_audio.mem_saver", "true|false", "Release cached AR runtime graphs after each request; default false."},

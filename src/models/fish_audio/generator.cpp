@@ -43,6 +43,7 @@ FishAudioGenerationResult FishAudioGenerator::generate(
     engine::debug::trace_log_scalar("fish_audio.request.has_reference", request.reference.has_value());
     engine::debug::trace_log_scalar("fish_audio.request.text_chars", static_cast<int64_t>(request.text.size()));
     engine::debug::trace_log_scalar("fish_audio.request.has_previous_turn", previous_turn.has_value());
+    engine::debug::trace_log_scalar("fish_audio.sampler.seed", request.generation.seed);
     const auto prompt_start = Clock::now();
     const auto prompt = prompt_builder_.build(request, reference_codes, previous_turn);
     engine::debug::timing_log_scalar(

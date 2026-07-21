@@ -124,7 +124,7 @@ FishAudioGenerationOptions generation_options_from_request(const runtime::TaskRe
     options.top_p = runtime::parse_float_option(request.options, {"top_p"}).value_or(options.top_p);
     options.top_k = runtime::parse_int_option(request.options, {"top_k"}).value_or(options.top_k);
     options.temperature = runtime::parse_float_option(request.options, {"temperature"}).value_or(options.temperature);
-    options.seed = runtime::parse_u32_option(request.options, {"seed"}).value_or(options.seed);
+    options.seed = runtime::parse_u32_option(request.options, {"seed"}).value_or(runtime::random_u32_seed());
     if (options.max_new_tokens <= 0) {
         throw std::runtime_error("Fish Audio max_new_tokens must be positive after default resolution");
     }
