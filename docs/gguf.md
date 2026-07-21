@@ -73,7 +73,7 @@ Status labels:
 | `moss_tts_local` | Done | Pass | --- | Pass | No (similarity drift, frame drift, text minor drift) |
 | `moss_tts_nano` | Done | Pass | --- | Pass | No (similarity drift, frame drift, text large drift) |
 | `nemotron_asr` | Done | Pass | --- | Pass | Pass (minor filler drift) |
-| `omnivoice` | Done | Pass | --- | No (runtime assert, no audio) | No (runtime assert, no audio) |
+| `omnivoice` | Done | Pass | --- | Pass (drift) | Pass (drift) |
 | `outetts` | Done | Pass (TTS + clone) | --- | --- | Pass (TTS + clone) |
 | `pocket_tts` | No | --- | --- | --- | --- |
 | `qwen3_asr` | Done | Pass | --- | Pass | Pass |
