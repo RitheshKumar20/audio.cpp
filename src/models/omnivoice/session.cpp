@@ -46,6 +46,22 @@ bool mem_saver_from_options(const runtime::SessionOptions & options) {
     return false;
 }
 
+OmniVoiceGeneratorPerfMode perf_mode_from_options(const runtime::SessionOptions & options, bool mem_saver) {
+    if (const auto value = runtime::find_option(options.options, {"omnivoice.perf_mode"})) {
+        if (*value == "off" || *value == "standard") {
+            return OmniVoiceGeneratorPerfMode::Standard;
+        }
+        if (*value == "flash_attention") {
+            if (mem_saver) {
+                throw std::runtime_error("omnivoice.perf_mode=flash_attention is not supported with omnivoice.mem_saver=true");
+            }
+            return OmniVoiceGeneratorPerfMode::FlashAttention;
+        }
+        throw std::runtime_error("Invalid omnivoice.perf_mode: " + *value);
+    }
+    return OmniVoiceGeneratorPerfMode::Standard;
+}
+
 using Clock = std::chrono::steady_clock;
 
 OmniVoiceGenerationOptions generation_options_from_options(const std::unordered_map<std::string, std::string> & options_map) {
@@ -198,6 +214,7 @@ OmniVoiceSession::OmniVoiceSession(
               "omnivoice.generator_weight_type",
               option_weight_type(options, "omnivoice.weight_type", engine::assets::TensorStorageType::Native))),
       mem_saver_(mem_saver_from_options(options)),
+      generator_perf_mode_(perf_mode_from_options(options, mem_saver_)),
       tokenizer_(assets_),
       audio_tokenizer_(
           assets_,
@@ -213,7 +230,8 @@ OmniVoiceSession::OmniVoiceSession(
           generator_decode_graph_arena_bytes_,
           generator_weight_context_bytes_,
           generator_weight_storage_type_,
-          mem_saver_) {
+          mem_saver_,
+          generator_perf_mode_) {
     if (task_.task != runtime::VoiceTaskKind::Tts) {
         throw std::runtime_error("OmniVoice only supports VoiceTaskKind::Tts");
     }
@@ -324,6 +342,13 @@ runtime::TaskResult OmniVoiceSession::run(const runtime::TaskRequest & request) 
     const bool use_explicit_text_chunking = omni_request.generation.text_chunk_size.has_value();
     if (!use_explicit_text_chunking && prompt.target_audio_tokens <= chunk_threshold) {
         generated_tokens = generator_.generate(prompt, omni_request.generation);
+        engine::debug::timing_log_scalar("omnivoice.generator.forward_ms", generated_tokens.forward_ms);
+        engine::debug::timing_log_scalar("omnivoice.generator.upload_ms", generated_tokens.upload_ms);
+        engine::debug::timing_log_scalar("omnivoice.generator.compute_ms", generated_tokens.compute_ms);
+        engine::debug::timing_log_scalar("omnivoice.generator.readback_ms", generated_tokens.readback_ms);
+        engine::debug::timing_log_scalar("omnivoice.generator.scoring_ms", generated_tokens.scoring_ms);
+        engine::debug::timing_log_scalar("omnivoice.generator.update_ms", generated_tokens.update_ms);
+        engine::debug::timing_log_scalar("omnivoice.generator.decode_steps", generated_tokens.decode_steps);
         {
             const auto & generator_stats = generator_.last_stats();
             any_generator_graph_rebuilt = any_generator_graph_rebuilt || generator_stats.graph_rebuilt;

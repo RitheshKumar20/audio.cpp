@@ -35,6 +35,7 @@ runtime::ModelCliInterface cli(const OmniVoiceAssets &) {
     };
     out.session_options = {
         {"omnivoice.mem_saver", "true|false", "Release staged runtime graphs after request phases; default false."},
+        {"omnivoice.perf_mode", "off|flash_attention", "Generator performance mode; default off keeps the exact-safe attention path."},
     };
     return out;
 }

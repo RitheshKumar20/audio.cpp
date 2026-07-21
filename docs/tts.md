@@ -210,8 +210,11 @@ Non-verbal tags are written directly in `--text`. Supported tag spellings includ
 | `--request-option audio_chunk_duration_seconds=<float>` | seconds | `15.0` | Audio chunk duration used by the model prompt path. |
 | `--request-option audio_chunk_threshold_seconds=<float>` | seconds | `30.0` | Audio length threshold before model-side chunking. |
 | `--session-option omnivoice.mem_saver=true|false` | bool | `false` | Release staged generator and audio-tokenizer runtime graphs after request phases to reduce resident VRAM. Later requests may rebuild released graphs. |
+| `--session-option omnivoice.perf_mode=off|flash_attention` | enum | `off` | Opt-in generator attention mode. `off` keeps the exact-safe path; `flash_attention` can improve CUDA throughput with small output drift. |
 
 When `--text-chunk-size` is not set, long OmniVoice requests keep the model-specific automatic punctuation chunker controlled by `audio_chunk_duration_seconds` and `audio_chunk_threshold_seconds`.
+
+The `omnivoice.perf_mode=flash_attention` path is intended for performance testing and latency-sensitive runs where high-similarity output drift is acceptable. It is only available on the normal graph path and cannot be combined with `omnivoice.mem_saver=true`.
 
 ## PocketTTS
 
