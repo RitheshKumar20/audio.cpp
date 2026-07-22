@@ -743,6 +743,82 @@ std::vector<std::string> chunk_text_punctuation_impl(
     return out;
 }
 
+// Narrower than is_split_punctuation -- true sentence-enders only (. ! ?
+// and their CJK full-width forms), deliberately excluding , ; : and their
+// CJK forms, which is_split_punctuation treats as split points too (correct
+// for chunk_text_punctuation_impl's chunk-size packing, wrong for splitting
+// one chunk per actual sentence).
+bool is_sentence_end_punctuation(std::string_view token) {
+    if (token.size() == 1 && std::strchr(".!?", token.front()) != nullptr) {
+        return true;
+    }
+    static const std::unordered_set<std::string> cjk_sentence_end = {"\xe3\x80\x82", "\xef\xbc\x81", "\xef\xbc\x9f"};
+    return cjk_sentence_end.count(std::string(token)) != 0;
+}
+
+bool is_whitespace_token(std::string_view token) {
+    return token.size() == 1 &&
+        (token.front() == ' ' || token.front() == '\t' || token.front() == '\n' || token.front() == '\r');
+}
+
+// True sentence boundary detection needs lookahead that
+// chunk_text_punctuation_impl's forward-only scan doesn't do:
+//   - a '.' adjacent to another '.' is an ellipsis, never a boundary
+//     (chunk_text_punctuation_impl has no such guard -- it would split
+//     "so..." into pieces)
+//   - . ! ? only count as a boundary when, after absorbing any immediately
+//     trailing closing quote/bracket, what follows is whitespace or
+//     end-of-text -- e.g. the '?' in typed 'so... no?', and left. is
+//     followed by ',' (still mid-sentence), not a real end
+std::vector<std::string> split_true_sentences_impl(std::string_view text) {
+    std::vector<std::string> tokens;
+    tokens.reserve(text.size());
+    for (size_t i = 0; i < text.size();) {
+        uint32_t codepoint = 0;
+        size_t len = 0;
+        decode_codepoint(text, i, codepoint, len);
+        tokens.emplace_back(text.substr(i, len));
+        i += len;
+    }
+
+    std::vector<std::string> sentences;
+    std::string current;
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        current += tokens[i];
+        if (!is_sentence_end_punctuation(tokens[i])) {
+            continue;
+        }
+        if (tokens[i] == "." &&
+            ((i > 0 && tokens[i - 1] == ".") || (i + 1 < tokens.size() && tokens[i + 1] == "."))) {
+            continue;  // mid-ellipsis dot
+        }
+        if (tokens[i] == "." && is_abbreviation_sentence({current})) {
+            continue;
+        }
+        size_t j = i + 1;
+        while (j < tokens.size() && is_closing_mark(tokens[j])) {
+            current += tokens[j];
+            ++j;
+        }
+        const bool at_end = j >= tokens.size();
+        if (!at_end && !is_whitespace_token(tokens[j])) {
+            i = j - 1;  // still mid-sentence (e.g. '?' followed by ',') -- keep scanning
+            continue;
+        }
+        const std::string trimmed = trim_copy(current);
+        if (!trimmed.empty()) {
+            sentences.push_back(trimmed);
+        }
+        current.clear();
+        i = j - 1;
+    }
+    const std::string trimmed = trim_copy(current);
+    if (!trimmed.empty()) {
+        sentences.push_back(trimmed);
+    }
+    return sentences;
+}
+
 }  // namespace
 
 OmniVoicePromptBuilder::OmniVoicePromptBuilder(
@@ -847,6 +923,10 @@ std::vector<std::string> OmniVoicePromptBuilder::chunk_text_punctuation(
     int64_t chunk_len,
     std::optional<int64_t> min_chunk_len) const {
     return chunk_text_punctuation_impl(trim_copy(text), chunk_len, min_chunk_len);
+}
+
+std::vector<std::string> OmniVoicePromptBuilder::split_true_sentences(std::string_view text) const {
+    return split_true_sentences_impl(trim_copy(text));
 }
 
 }  // namespace engine::models::omnivoice

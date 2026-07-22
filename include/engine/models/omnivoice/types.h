@@ -33,6 +33,20 @@ struct OmniVoiceGenerationOptions {
     float audio_chunk_threshold_seconds = 30.0F;
     std::optional<int64_t> text_chunk_size = std::nullopt;
     engine::text::TextChunkMode text_chunk_mode = engine::text::TextChunkMode::TagAware;
+    // Experimental (streaming only): when > 0, overrides normal chunking
+    // with one-sentence-per-chunk (split_true_sentences) and inserts this
+    // many ms of silence before every non-first outer (sentence) chunk.
+    // 0 (default) leaves existing chunking/gap behavior untouched.
+    int sentence_chunk_pause_ms = 0;
+    // Experimental (streaming only, requires sentence_chunk_pause_ms > 0):
+    // when > 0, overrides num_inference_steps to this LOWER value for the
+    // first sentence's own chunk(s) only (both inner pieces, if peeled) --
+    // every other chunk still uses num_inference_steps. Lets the
+    // TTFC-critical opening fragment run cheap/fast while later chunks
+    // (already off the latency-critical path once streaming has started)
+    // get full quality. 0 (default) leaves every chunk at num_inference_
+    // steps, unchanged.
+    int64_t first_sentence_num_inference_steps = 0;
 };
 
 struct OmniVoiceAudioTokens {

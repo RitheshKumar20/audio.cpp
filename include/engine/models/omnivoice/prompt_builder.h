@@ -26,6 +26,16 @@ public:
         std::string_view text,
         int64_t chunk_len,
         std::optional<int64_t> min_chunk_len = 3) const;
+    // Splits ONLY at true sentence-ending punctuation (. ! ?), unlike
+    // chunk_text_punctuation whose is_split_punctuation also treats , ; :
+    // as split points -- appropriate for that function's chunk-size-packing
+    // use (commas become internal merge points at chunk_len>1), wrong for
+    // "one chunk per sentence" (chunk_len=1 there fragments at every comma
+    // too, since nothing can be merged when chunk_len is that small). Keeps
+    // trailing closing quotes/brackets attached to the sentence they close,
+    // e.g. a period inside a quoted "...?" does not end the sentence if a
+    // comma immediately follows the closing quote (still mid-sentence).
+    std::vector<std::string> split_true_sentences(std::string_view text) const;
 
 private:
     std::shared_ptr<const OmniVoiceAssets> assets_;

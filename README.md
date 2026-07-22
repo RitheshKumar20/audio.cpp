@@ -1,3 +1,5 @@
+> Adopted from [0xShug0/audio.cpp](https://github.com/0xShug0/audio.cpp), but deviated enough to no longer be a fork.
+
 # audio.cpp
 
 `audio.cpp` is a high-performance C++ audio inference framework built on top of `ggml`, designed to make modern local audio models practical, portable, and fast.

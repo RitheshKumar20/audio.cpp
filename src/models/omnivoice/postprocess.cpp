@@ -13,6 +13,18 @@
 namespace engine::models::omnivoice {
 namespace {
 
+// Mid-speech silence gaps (e.g. the pause after a sentence-ending period)
+// longer than this get clamped down to at most this length -- matches
+// omnivoice.models.omnivoice's own remove_silence(mid_sil=...) call this is
+// a faithful C++ port of (see that Python file's _post_process_audio).
+// Used as BOTH the detection threshold (a gap must be at least this long to
+// be treated as "silence to trim" at all) and the kept length (so this can
+// only shorten an already-longer natural pause down to this cap -- it can't
+// stretch a pause the model generates shorter than this to begin with).
+// Library default was 500ms; raised here for a more natural, less clipped
+// punctuation pause.
+constexpr int kPunctuationPauseMs = 1000;
+
 int64_t ms_to_samples(int ms, int sample_rate) {
     return static_cast<int64_t>(ms) * static_cast<int64_t>(sample_rate) / 1000;
 }
@@ -274,7 +286,7 @@ OmniVoiceResult OmniVoicePostprocessor::finalize(
         auto pcm = engine::audio::float_to_pcm16_clipped(
             mono,
             engine::audio::Pcm16QuantizeMode::RoundToNearest);
-        pcm = split_on_silence_pcm16(pcm, audio.sample_rate, 500, -50.0F, 500, 10);
+        pcm = split_on_silence_pcm16(pcm, audio.sample_rate, kPunctuationPauseMs, -50.0F, kPunctuationPauseMs, 10);
         pcm = trim_edges_pcm16(pcm, audio.sample_rate, 100, 100, -50.0F);
         mono = engine::audio::pcm16_to_float_unit_range(pcm);
     }

@@ -126,6 +126,14 @@ OmniVoiceGenerationOptions generation_options_from_options(const std::unordered_
         options_map,
         {"audio_chunk_threshold"})
         .value_or(options.audio_chunk_threshold_seconds);
+    options.sentence_chunk_pause_ms = runtime::parse_int_option(
+        options_map,
+        {"sentence_chunk_pause_ms"})
+        .value_or(options.sentence_chunk_pause_ms);
+    options.first_sentence_num_inference_steps = runtime::parse_int_option(
+        options_map,
+        {"first_sentence_num_inference_steps"})
+        .value_or(options.first_sentence_num_inference_steps);
     options.text_chunk_size = engine::text::parse_text_chunk_size_override(options_map);
     options.text_chunk_mode = engine::text::parse_text_chunk_mode_override(options_map)
         .value_or(engine::text::TextChunkMode::TagAware);
@@ -227,6 +235,19 @@ void apply_fade_in(runtime::AudioBuffer & chunk, float fade_seconds) {
     for (size_t i = 0; i < fade_n; ++i) {
         chunk.samples[i] *= fade_weight(i, fade_n, 0.0F, 1.0F);
     }
+}
+
+// EXPERIMENTAL (see OmniVoiceGenerationOptions::sentence_chunk_pause_ms):
+// prepends silence to the INCOMING chunk only, after its own fade-in, so it
+// never touches audio already emitted over the wire -- zero added time-to-
+// first-chunk, same reasoning as apply_fade_in's own comment above about
+// why streaming can't do append_cross_faded_chunk's two-sided version.
+void prepend_silence(runtime::AudioBuffer & chunk, int silence_ms) {
+    if (chunk.sample_rate <= 0 || silence_ms <= 0) {
+        return;
+    }
+    const size_t silence_n = static_cast<size_t>(silence_ms) * static_cast<size_t>(chunk.sample_rate) / 1000;
+    chunk.samples.insert(chunk.samples.begin(), silence_n, 0.0F);
 }
 
 }  // namespace
@@ -608,20 +629,78 @@ runtime::TaskResult OmniVoiceSessionBase::run_streaming_request(
     // stream event) -- streaming's whole point is progressive emission, so
     // there's no separate "small enough, do it in one shot" branch here the
     // way the offline path has.
-    auto text_chunks = plan_text_chunks(omni_request, prompt);
-    if (text_chunks.empty()) {
-        text_chunks.push_back(prompt.text);
-    }
+    //
+    // Two layers, kept separate on purpose (see OmniVoiceGenerationOptions::
+    // sentence_chunk_pause_ms):
+    //   OUTER -- splits the request into pieces a pause belongs between.
+    //            Default path: plan_text_chunks (unchanged, exactly as
+    //            before -- same helper run_offline_request uses).
+    //            sentence_chunk_pause_ms path: one TRUE sentence per outer
+    //            piece (split_true_sentences -- splits only at . ! ?,
+    //            never mid-sentence at a comma).
+    //   INNER  -- ONLY the first outer piece gets peeled further, into a
+    //            small opening fragment + the rest, purely to keep TTFC
+    //            low (the first fragment reaches the model/client sooner).
+    //            Always chunk_text_punctuation(..., 1, ...) -- unchanged
+    //            from before this option existed, and the same mechanism
+    //            the default path's own peel below uses. Every other outer
+    //            piece passes through with no inner chunking.
+    // Stitching mirrors the split: inner pieces (the first outer piece's
+    // own peel) get fade-in only, same as always. Only the boundary INTO a
+    // new outer piece (i.e. NOT the first outer piece's own inner split)
+    // gets the extra pause -- so pauses land between sentences, never
+    // inside one.
+    std::vector<std::string> text_chunks;
+    std::vector<bool> chunk_starts_outer_piece;
+    std::vector<bool> chunk_is_first_sentence;
+    if (omni_request.generation.sentence_chunk_pause_ms > 0) {
+        const auto outer_pieces = prompt_builder_.split_true_sentences(prompt.text);
+        for (size_t outer_index = 0; outer_index < outer_pieces.size(); ++outer_index) {
+            const bool is_first_outer_piece = (outer_index == 0);
+            std::vector<std::string> inner_pieces;
+            if (is_first_outer_piece) {
+                // Peel a small opening fragment for TTFC, same as the
+                // default path's peel below -- exactly 2 inner pieces (or
+                // 1, if the sentence has no internal punctuation to break
+                // on), NOT one piece per punctuation mark: everything after
+                // the first fragment is merged back into a single "rest"
+                // piece, matching first_chunk_sentences' own merge below.
+                const auto split_first = prompt_builder_.chunk_text_punctuation(
+                    outer_pieces[outer_index], 1, std::nullopt);
+                if (split_first.size() > 1) {
+                    std::string rest;
+                    for (size_t k = 1; k < split_first.size(); ++k) {
+                        rest += split_first[k];
+                    }
+                    inner_pieces = {split_first.front(), std::move(rest)};
+                } else {
+                    inner_pieces = split_first;
+                }
+            } else {
+                inner_pieces = {outer_pieces[outer_index]};
+            }
+            for (size_t inner_index = 0; inner_index < inner_pieces.size(); ++inner_index) {
+                text_chunks.push_back(inner_pieces[inner_index]);
+                chunk_starts_outer_piece.push_back(inner_index == 0 && !is_first_outer_piece);
+                chunk_is_first_sentence.push_back(is_first_outer_piece);
+            }
+        }
+    } else {
+        text_chunks = plan_text_chunks(omni_request, prompt);
+        if (text_chunks.empty()) {
+            text_chunks.push_back(prompt.text);
+        }
 
-    // Peel just the first SENTENCE off text_chunks[0] into its own chunk --
-    // see the chunk-sizing comment above for why. chunk_text_punctuation
-    // with a chunk_len of 1 forces one-sentence-per-element (no sentence is
-    // ever split smaller than itself), so this reuses the same sentence-
-    // boundary logic the normal chunking pass above already relies on,
-    // rather than a separate splitting method. No-op when text_chunks[0]
-    // was already a single sentence (the common case once a chunk's target
-    // duration is below one sentence's natural length).
-    {
+        // Peel just the first SENTENCE off text_chunks[0] into its own
+        // chunk -- see the layering comment above for why. Only for the
+        // default (non-sentence_chunk_pause_ms) path -- that path already
+        // built its own inner peel above, scoped to exactly one true
+        // sentence, which chunk_text_punctuation(text_chunks[0], 1, ...)
+        // here is NOT a safe substitute for: unlike this block's original
+        // assumption, it also splits on , ; : (see is_split_punctuation),
+        // so run again on an ALREADY single-sentence text_chunks[0] it
+        // would still fragment at a comma, corrupting it and inserting a
+        // bogus extra chunk.
         auto first_chunk_sentences = prompt_builder_.chunk_text_punctuation(text_chunks[0], 1, std::nullopt);
         if (first_chunk_sentences.size() > 1) {
             std::string rest_of_first_chunk;
@@ -632,6 +711,12 @@ runtime::TaskResult OmniVoiceSessionBase::run_streaming_request(
             text_chunks.insert(text_chunks.begin() + 1, std::move(rest_of_first_chunk));
         }
     }
+    if (chunk_starts_outer_piece.size() != text_chunks.size()) {
+        chunk_starts_outer_piece.assign(text_chunks.size(), false);  // default path: no pauses at all
+    }
+    if (chunk_is_first_sentence.size() != text_chunks.size()) {
+        chunk_is_first_sentence.assign(text_chunks.size(), false);  // default path: no step override anywhere
+    }
 
     engine::debug::trace_log_scalar("omnivoice.text_chunk_count", static_cast<int64_t>(text_chunks.size()));
 
@@ -641,6 +726,10 @@ runtime::TaskResult OmniVoiceSessionBase::run_streaming_request(
     OmniVoiceRequest chunk_request = omni_request;
     int64_t chunk_codebooks = 0;
     chunk_request.generation.duration_seconds.reset();
+    // See OmniVoiceGenerationOptions::first_sentence_num_inference_steps --
+    // captured once here (before chunk_request.generation gets overridden
+    // below) so later, non-first-sentence chunks can be restored to it.
+    const int64_t normal_num_inference_steps = chunk_request.generation.num_inference_steps;
 
     runtime::AudioBuffer merged;
     double generator_ms = 0.0;
@@ -652,6 +741,10 @@ runtime::TaskResult OmniVoiceSessionBase::run_streaming_request(
             chunk_request.reference_audio_tokens = *first_chunk_reference;
             chunk_request.reference_text = first_chunk_text;
         }
+        chunk_request.generation.num_inference_steps =
+            (chunk_is_first_sentence[chunk_index] && omni_request.generation.first_sentence_num_inference_steps > 0)
+                ? omni_request.generation.first_sentence_num_inference_steps
+                : normal_num_inference_steps;
         const auto chunk_prompt = prompt_builder_.build(chunk_request);
         const auto generate_start = Clock::now();
         auto chunk_tokens = generator_.generate(chunk_prompt, chunk_request.generation);
@@ -682,6 +775,13 @@ runtime::TaskResult OmniVoiceSessionBase::run_streaming_request(
 
         if (chunk_index > 0) {
             apply_fade_in(chunk_audio, kChunkFadeInSeconds);
+            // Only a boundary INTO a new outer piece (a new sentence) gets
+            // the pause -- an inner boundary (within the first sentence's
+            // own TTFC peel) stitches with just the fade above, same as
+            // the default path always has.
+            if (chunk_starts_outer_piece[chunk_index]) {
+                prepend_silence(chunk_audio, omni_request.generation.sentence_chunk_pause_ms);
+            }
         }
 
         runtime::NamedAudioBuffer named;
